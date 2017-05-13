@@ -5,8 +5,11 @@ import ConfigParser
 import os
 import argparse
 import logging
+import time
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
+from pulsectl import Pulse as PulseLib
+
 
 class App:
     """
@@ -23,7 +26,6 @@ class App:
         config.read(file_path)
 
         return config
-
 
     @staticmethod
     def read_args():
@@ -49,7 +51,6 @@ class App:
 
         return parser.parse_args()
 
-
     @staticmethod
     def get_config_file_path(args):
         """
@@ -65,7 +66,6 @@ class App:
             raise Exception("Config file at '%s' does not exist!" % file_path)
 
         return file_path
-
 
     @staticmethod
     def setup_logging(verbose, filepath):
@@ -143,12 +143,79 @@ class DBus:
                 # Some new edge case has appeared
                 logging.error("%s: Key 'Connected' not in message and not ServiceResolved???" % interface)
                 return
-            
+
             logging.error("%s: Some weird error occurred." % interface)
             return
 
         # Deal with the connection state
         logging.info("%s: Connected -> %s" % (interface, conn_state))
+        Pulse.manage_connection(conn_state)
+
+
+class Pulse:
+    """
+    Shell class for Pulse related functions.
+    """
+    @staticmethod
+    def get_sink_device(pulse_conn, description):
+        """
+        Return a pulse device
+        :param description: The text used for identification.
+        :return:
+        """
+        for dev in pulse_conn.sink_list():
+            if dev.description == description:
+                return dev
+
+        logging.error("Sink device not found! (Was searching for \"%s\")" % description)
+
+    @staticmethod
+    def get_sink_input_device(pulse_conn, name):
+        """
+        Return a Pulse device of our audio source (in my case, LADSPA EQ)
+        :param pulse_conn:
+        :param name:
+        :return:
+        """
+        for dev in pulse_conn.sink_input_list():
+            if dev.name == name:
+                return dev
+
+        logging.error("Sink Input device not found! (Was searching for \"%s\")" % name)
+
+    @staticmethod
+    def move_input(pulse_conn, source, destination):
+        """
+        Move a Pulse stream
+        :param pulse_conn:
+        :param source:
+        :param destination:
+        :return:
+        """
+        logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
+        pulse_conn.sink_input_move(source.index, destination.index)
+
+    @staticmethod
+    def manage_connection(conn_state):
+        """
+        Perform connection or disconnection actions from an event.
+        :param conn_state:
+        :return:
+        """
+        with PulseLib('maxime-manage') as pulse:
+            ladspa_dev = Pulse.get_sink_input_device(pulse, "LADSPA Stream")
+
+            target_device = Pulse.get_sink_device(pulse, "SB X-Fi Surround 5.1 Pro Digital Stereo (IEC958)")
+            if conn_state is True:
+                # We need to a wait a few seconds for Pulse to get its house
+                # in order.
+                time.sleep(4)
+                target_device = Pulse.get_sink_device(pulse, "Bose QuietComfort 35")
+
+            logging.info("Target device should be \"%s\"" % target_device.description)
+            Pulse.move_input(pulse, ladspa_dev, target_device)
+
+        logging.info("Success!")
 
 
 def main():
