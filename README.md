@@ -42,3 +42,7 @@ take its functions and use them for something useful.
 * Single-tap: Mute
 * Double-tap: Switch to speakers
 * Triple-tap: Force-reconnect
+
+## Todo
+* Reset all volume levels to appropriate software values on event.
+* More error checking.

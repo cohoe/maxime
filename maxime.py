@@ -229,6 +229,19 @@ class Pulse:
         logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
         pulse_conn.sink_input_move(source.index, destination.index)
 
+    @staticmethod
+    def locate_sink_device(pulse_conn):
+        """
+        Find an appropraite sink device to use as output.
+        :param devices:
+        :return:
+        """
+        for dev in pulse_conn.sink_list():
+            if dev.name.startswith("alsa_output"):
+                return dev
+
+        raise Exception("Could not find an appropriate output device.")
+
 
 class AudioRouter:
     """
@@ -319,9 +332,7 @@ class AudioRouter:
             ladspa_dev = Pulse.get_sink_input_device(pulse, "LADSPA Stream")
 
             # We default to speakers, and override with headphones
-            # @TODO Make this not static
-            target_device = Pulse.get_sink_device(pulse,
-                                                  "SB X-Fi Surround 5.1 Pro Digital Stereo (IEC958)")
+            target_device = Pulse.locate_sink_device(pulse)
             if conn_state is True:
                 # We need to a wait a few seconds for Pulse to catch up
                 time.sleep(4)
