@@ -52,6 +52,16 @@ class App:
                             default=('/var/tmp/maxime_%s.log' % os.getlogin()),
                             help='path to log file (or emptystring for STDOUT)')
 
+        parser.add_argument('--connect',
+                            default=False,
+                            action='store_true',
+                            help='simulate a connect event')
+
+        parser.add_argument('--disconnect',
+                            default=False,
+                            action='store_true',
+                            help='simulate a disconnect event')
+
         return parser.parse_args()
 
     @staticmethod
@@ -97,6 +107,17 @@ class App:
                                 level=logging.INFO)
 
         logging.info("Starting logging facility")
+
+    @staticmethod
+    def log_angry(level, message):
+        """
+        Log a message to both stdout and the log facility.
+        :param level: The logging.LEVEL
+        :param message: The message
+        :return: None
+        """
+        logging.log(level, message)
+        print message
 
 
 class DBus:
@@ -299,8 +320,27 @@ def main():
     DBusGMainLoop(set_as_default=True)
 
     # Setup our router object which will handle what to do when a BT event hits
+    # This must occur after the DBusGMainLoop call above.
     ar = AudioRouter(config)
     ar.setup_dbus()
+
+    # See if we are simulating
+    if args.connect or args.disconnect:
+        App.log_angry(logging.WARN, "Simulating an event. DBus will not monitor.")
+
+        # Test if the user is paying attention
+        if args.connect and args.disconnect:
+            App.log_angry(logging.ERROR, "You cannot specify both connect and disconnect")
+            exit(1)
+
+        # Perform
+        if args.connect:
+            ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": True}, None)
+        if args.disconnect:
+            ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": False}, None)
+
+        App.log_angry(logging.WARN, "Simulation complete!")
+        exit()
 
     # DBus event loop. Listen to the sounds....
     dbus_loop = GLib.MainLoop()
