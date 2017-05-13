@@ -119,15 +119,49 @@ class App:
         logging.log(level, message)
         print message
 
+    @staticmethod
+    def send_notification(conn_state, target_device):
+        """
+        Send an OS notification to the user.
+        :param conn_state: Boolean of whether we connected a BT device.
+        :param target_device: The target device (for the name).
+        :return: None
+        """
+        icon = "audio-speakers"
+        if conn_state is True:
+            icon = "audio-headphones-bluetooth"
+
+        # This blog post has a lot of good examples on how to do this.
+        # http://cheesehead-techblog.blogspot.com/2009/02/five-ways-to-make-notification-pop-up.html
+        app_name = "Maxime"
+        id_num_to_replace = 0
+        title = app_name
+        text = "Connected to %s" % target_device.description
+        actions_list = ''
+        hint = ''
+        time = 5000
+
+        # Create the objects and send!
+        bus = dbus.SessionBus()
+        dbus_notify_proxy = bus.get_object(DBus.SERVICE_NOTIFICATIONS, DBus.PATH_NOTIFICATIONS)
+        dbus_notify_interface = dbus.Interface(dbus_notify_proxy, DBus.INTERFACE_NOTIFICATIONS)
+        dbus_notify_interface.Notify(app_name, id_num_to_replace, icon,
+                                     title, text, actions_list, hint, time)
 
 class DBus:
     """
     Shell class for DBus-related functions.
     """
-    BT_SERVICE = "org.bluez"
+    SERVICE_BT = "org.bluez"
     INTERFACE_PROPERTIES = "org.freedesktop.DBus.Properties"
     INTERFACE_DEVICE = "org.bluez.Device1"
+
     SIGNAL_PROPERTIESCHANGED = "PropertiesChanged"
+
+    SERVICE_NOTIFICATIONS = "org.freedesktop.Notifications"
+    PATH_NOTIFICATIONS = "/org/freedesktop/Notifications"
+    INTERFACE_NOTIFICATIONS = "org.freedesktop.Notifications"
+
 
     @staticmethod
     def get_normal_mac(mac):
@@ -147,7 +181,7 @@ class DBus:
         :return: A string of the device path.
         """
         mac = DBus.get_normal_mac(mac)
-        service = DBus.BT_SERVICE.replace('.', '/')
+        service = DBus.SERVICE_BT.replace('.', '/')
         obj_path = "/%s/%s/dev_%s" % (service, adapter, mac)
 
         return obj_path
@@ -224,7 +258,7 @@ class AudioRouter:
         :return: None
         """
         bus = dbus.SystemBus()
-        self.dbus_bt_dev_proxy = bus.get_object(DBus.BT_SERVICE,
+        self.dbus_bt_dev_proxy = bus.get_object(DBus.SERVICE_BT,
                                                 self.bt_object_path)
         self.dbus_bt_dev_proxy.connect_to_signal(DBus.SIGNAL_PROPERTIESCHANGED,
                                                  self._dbus_handler,
@@ -301,6 +335,7 @@ class AudioRouter:
             Pulse.move_input(pulse, ladspa_dev, target_device)
 
         # @TODO This should probably deal with errors, but until then...
+        App.send_notification(conn_state, target_device)
         logging.info("Success!")
 
 

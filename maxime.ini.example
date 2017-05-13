@@ -1,0 +1,3 @@
+[bluetooth]
+device_mac=AB:CD:ED:12:34:56
+adapter=hci0
