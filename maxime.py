@@ -20,6 +20,8 @@ class App:
     def read_config_file(file_path):
         """
         Read configuration directives from the config file.
+        :param file_path: Path to the file that we want to read.
+        :return: ConfigParser object.
         """
         # Read the config
         config = ConfigParser.RawConfigParser()
@@ -31,6 +33,7 @@ class App:
     def read_args():
         """
         Read arguments from the CLI.
+        :return: ArgParse object.
         """
         description = "Bluetooth audio connection manager."
         epilog = "Written by Grant Cohoe (https://grantcohoe.com)"
@@ -55,6 +58,8 @@ class App:
     def get_config_file_path(args):
         """
         Return a normalized path to our configuration file.
+        :param args: ArgParse object.
+        :return: String of the path to our config file.
         """
         # Normalize our path
         file_path = args.config
@@ -71,6 +76,9 @@ class App:
     def setup_logging(verbose, filepath):
         """
         Setup the logging facility.
+        :param verbose: Boolean of whether to be loud or not.
+        :param filepath: Log file path.
+        :return: None
         """
         if filepath is not '':
             if os.path.exists(filepath) is False:
@@ -104,6 +112,8 @@ class DBus:
     def get_normal_mac(mac):
         """
         Return a DBus-normalized MAC address.
+        :param mac: MAC address to normalize
+        :return: A DBus/BlueZ compatible MAC address
         """
         return mac.replace(':','_')
 
@@ -111,6 +121,9 @@ class DBus:
     def get_bt_device_path(adapter, mac):
         """
         Return the DBus object path of a particular device.
+        :param adapter: The Bluetooth interface.
+        :param mac: The normalized MAC address.
+        :return: A string of the device path.
         """
         mac = DBus.get_normal_mac(mac)
         service = DBus.BT_SERVICE.replace('.', '/')
@@ -118,10 +131,93 @@ class DBus:
 
         return obj_path
 
+
+class Pulse:
+    """
+    Shell class for Pulse related functions.
+    """
     @staticmethod
-    def event_handler(interface, changed_properties, signature):
+    def get_sink_device(pulse_conn, description):
+        """
+        Return a pulse device
+        :param pulse_conn: Pulse connection object.
+        :param description: The text used for identification.
+        :return: A Pulse device or None
+        """
+        for dev in pulse_conn.sink_list():
+            if dev.description == description:
+                return dev
+
+        logging.error("Sink device not found! (Was searching for \"%s\")" % description)
+
+    @staticmethod
+    def get_sink_input_device(pulse_conn, name):
+        """
+        Return a Pulse device of our audio source (in my case, LADSPA EQ)
+        :param pulse_conn: Pulse connection object.
+        :param name: The name of the device to search for.
+        :return: A Pulse device or None
+        """
+        for dev in pulse_conn.sink_input_list():
+            if dev.name == name:
+                return dev
+
+        logging.error("Sink Input device not found! (Was searching for \"%s\")" % name)
+
+    @staticmethod
+    def move_input(pulse_conn, source, destination):
+        """
+        Move a Pulse stream
+        :param pulse_conn: Pulse connection object.
+        :param source: Source device that we want to redirect.
+        :param destination: Target device that we want to hear from.
+        :return: None
+        """
+        logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
+        pulse_conn.sink_input_move(source.index, destination.index)
+
+
+class AudioRouter:
+    """
+    Main functional class. Holds the logic for listening for DBus events and
+    responding to them.
+    """
+    def __init__(self, config):
+        """
+        Constructor for the AudioRouter class. It sets some other basic stuff for us.
+        :param config: The output from ConfigParser
+        """
+        self.config = config
+        self.bt_adapter = config.get('bluetooth', 'adapter')
+        self.bt_mac = config.get('bluetooth', 'device_mac')
+        self.bt_object_path = DBus.get_bt_device_path(self.bt_adapter, self.bt_mac)
+        self.dbus_bt_dev_proxy = None
+        self.dbus_bt_dev_properties = None
+
+    def setup_dbus(self):
+        """
+        Setup our DBus proxy object and properties interface. The proxy object
+        is used to perform operations against a specific DBus object.
+        The properties interface is our templated way into viewing properties
+        about the device we just (dis)connected.
+        :return: None
+        """
+        bus = dbus.SystemBus()
+        self.dbus_bt_dev_proxy = bus.get_object(DBus.BT_SERVICE,
+                                                self.bt_object_path)
+        self.dbus_bt_dev_proxy.connect_to_signal(DBus.SIGNAL_PROPERTIESCHANGED,
+                                                 self._dbus_handler,
+                                                 dbus_interface=DBus.INTERFACE_PROPERTIES)
+        self.dbus_bt_dev_properties = dbus.Interface(self.dbus_bt_dev_proxy,
+                                                     dbus_interface=DBus.INTERFACE_PROPERTIES)
+
+    def _dbus_handler(self, interface, changed_properties, signature):
         """
         Event handler for a change in a Bluetooth device state.
+        :param interface: String of the DBus interface.
+        :param changed_properties: Dictionary of the properties that changed.
+        :param signature: String of something that I don't care about.
+        :return: None
         """
         logging.info("%s: Change detected." % interface)
 
@@ -136,85 +232,54 @@ class DBus:
         except KeyError:
             # Ignore a ServicesResolved message
             try:
-                services_state = bool(changed_properties['ServicesResolved'])
-                logging.info("%s: Ignoring ServicesResolved message." % interface)
+                bool(changed_properties['ServicesResolved'])
+                logging.info("%s: Ignoring ServicesResolved." % interface)
                 return
-            except KeyError:
-                # Some new edge case has appeared
-                logging.error("%s: Key 'Connected' not in message and not ServiceResolved???" % interface)
+            except Exception:
+                logging.error("%s: Some weird error occurred "
+                              "(and it wasnt ServicesResolved)." % interface)
                 return
-
+        except Exception:
             logging.error("%s: Some weird error occurred." % interface)
             return
 
         # Deal with the connection state
         logging.info("%s: Connected -> %s" % (interface, conn_state))
-        Pulse.manage_connection(conn_state)
+        self.manage_connection(conn_state)
 
-
-class Pulse:
-    """
-    Shell class for Pulse related functions.
-    """
-    @staticmethod
-    def get_sink_device(pulse_conn, description):
+    def get_bt_dev_property(self, property):
         """
-        Return a pulse device
-        :param description: The text used for identification.
-        :return:
+        Return a DBus property from our device.
+        :param property: String of the property.
+        :return: The value of the property.
         """
-        for dev in pulse_conn.sink_list():
-            if dev.description == description:
-                return dev
+        return self.dbus_bt_dev_properties.Get(DBus.INTERFACE_DEVICE, property)
 
-        logging.error("Sink device not found! (Was searching for \"%s\")" % description)
-
-    @staticmethod
-    def get_sink_input_device(pulse_conn, name):
-        """
-        Return a Pulse device of our audio source (in my case, LADSPA EQ)
-        :param pulse_conn:
-        :param name:
-        :return:
-        """
-        for dev in pulse_conn.sink_input_list():
-            if dev.name == name:
-                return dev
-
-        logging.error("Sink Input device not found! (Was searching for \"%s\")" % name)
-
-    @staticmethod
-    def move_input(pulse_conn, source, destination):
-        """
-        Move a Pulse stream
-        :param pulse_conn:
-        :param source:
-        :param destination:
-        :return:
-        """
-        logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
-        pulse_conn.sink_input_move(source.index, destination.index)
-
-    @staticmethod
-    def manage_connection(conn_state):
+    def manage_connection(self, conn_state):
         """
         Perform connection or disconnection actions from an event.
-        :param conn_state:
-        :return:
+        :param conn_state: Boolean of whether the device was connected or not.
+        :return: None
         """
         with PulseLib('maxime-manage') as pulse:
+            # @TODO Make this not static
             ladspa_dev = Pulse.get_sink_input_device(pulse, "LADSPA Stream")
 
-            target_device = Pulse.get_sink_device(pulse, "SB X-Fi Surround 5.1 Pro Digital Stereo (IEC958)")
+            # We default to speakers, and override with headphones
+            # @TODO Make this not static
+            target_device = Pulse.get_sink_device(pulse,
+                                                  "SB X-Fi Surround 5.1 Pro Digital Stereo (IEC958)")
             if conn_state is True:
-                # We need to a wait a few seconds for Pulse to get its house
-                # in order.
+                # We need to a wait a few seconds for Pulse to catch up
                 time.sleep(4)
-                target_device = Pulse.get_sink_device(pulse, "Bose QuietComfort 35")
+                target_device = Pulse.get_sink_device(pulse, self.get_bt_dev_property('Name'))
 
-            logging.info("Target device should be \"%s\"" % target_device.description)
+            logging.info("Target device is \"%s\"" % target_device.description)
+
+            # Tell Pulse to move the stream to our target device
             Pulse.move_input(pulse, ladspa_dev, target_device)
 
+        # @TODO This should probably deal with errors, but until then...
         logging.info("Success!")
 
 
@@ -229,28 +294,15 @@ def main():
     # this otherwise it will break the output)
     config = App.read_config_file(App.get_config_file_path(args))
     App.setup_logging(args.verbose, args.logfile)
-    # @TODO There will probably be more configuration options to deal with.
 
     # DBus setup
     DBusGMainLoop(set_as_default=True)
 
-    adapter = config.get('bluetooth', 'adapter')
-    mac = config.get('bluetooth', 'device_mac')
+    # Setup our router object which will handle what to do when a BT event hits
+    ar = AudioRouter(config)
+    ar.setup_dbus()
 
-    obj_path = DBus.get_bt_device_path(adapter, mac)
-
-    bus = dbus.SystemBus()
-    dbus_bt_dev_proxy = bus.get_object(DBus.BT_SERVICE, obj_path)
-    dbus_bt_dev_proxy.connect_to_signal(DBus.SIGNAL_PROPERTIESCHANGED,
-                                   DBus.event_handler,
-                                   dbus_interface=DBus.INTERFACE_PROPERTIES)
-    
-    # Print some info about the device
-    dbus_bt_dev_properties = dbus.Interface(dbus_bt_dev_proxy,
-                                            dbus_interface=DBus.INTERFACE_PROPERTIES)
-    bt_dev_name = dbus_bt_dev_properties.Get(DBus.INTERFACE_DEVICE, 'Name')
-    print bt_dev_name
-
+    # DBus event loop. Listen to the sounds....
     dbus_loop = GLib.MainLoop()
     dbus_loop.run()
 
