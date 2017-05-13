@@ -120,26 +120,23 @@ class App:
         print message
 
     @staticmethod
-    def send_notification(conn_state, target_device):
+    def send_notification(text, icon='', time=5000):
         """
         Send an OS notification to the user.
-        :param conn_state: Boolean of whether we connected a BT device.
-        :param target_device: The target device (for the name).
+        :param text: Text to display.
+        :param icon: Name of the icon to use.
+        :param time: Time the notification should live.
         :return: None
         """
-        icon = "audio-speakers"
-        if conn_state is True:
-            icon = "audio-headphones-bluetooth"
 
         # This blog post has a lot of good examples on how to do this.
         # http://cheesehead-techblog.blogspot.com/2009/02/five-ways-to-make-notification-pop-up.html
         app_name = "Maxime"
         id_num_to_replace = 0
         title = app_name
-        text = "Connected to %s" % target_device.description
+
         actions_list = ''
         hint = ''
-        time = 5000
 
         # Create the objects and send!
         bus = dbus.SessionBus()
@@ -204,6 +201,7 @@ class Pulse:
                 return dev
 
         logging.error("Sink device not found! (Was searching for \"%s\")" % description)
+        raise Exception("Sink device not found! (Was searching for \"%s\")" % description)
 
     @staticmethod
     def get_sink_input_device(pulse_conn, name):
@@ -327,7 +325,11 @@ class AudioRouter:
             if conn_state is True:
                 # We need to a wait a few seconds for Pulse to catch up
                 time.sleep(4)
-                target_device = Pulse.get_sink_device(pulse, self.get_bt_dev_property('Name'))
+                try:
+                    target_device = Pulse.get_sink_device(pulse, self.get_bt_dev_property('Name'))
+                except Exception:
+                    logging.error("Failed to find connected sink.")
+                    return
 
             logging.info("Target device is \"%s\"" % target_device.description)
 
@@ -335,7 +337,12 @@ class AudioRouter:
             Pulse.move_input(pulse, ladspa_dev, target_device)
 
         # @TODO This should probably deal with errors, but until then...
-        App.send_notification(conn_state, target_device)
+        # Send notification
+        icon = "audio-speakers"
+        if conn_state is True:
+            icon = "audio-headphones-bluetooth"
+        text = "Connected to %s" % target_device.description
+        App.send_notification(text, icon)
         logging.info("Success!")
 
 
@@ -378,6 +385,8 @@ def main():
         exit()
 
     # DBus event loop. Listen to the sounds....
+    loop_msg = "Started listening for BT audio devices."
+    App.send_notification(loop_msg, "audio-card")
     dbus_loop = GLib.MainLoop()
     dbus_loop.run()
 

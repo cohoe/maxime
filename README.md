@@ -18,17 +18,14 @@ switching between devices as the headphones come on and off.
 
 This utility is built to deal with that case.
 
+## Primary Features
+* Automatic switching to/from headphones on connect.
+* Desktop notifications
+
 ## Under the Hood
 Maxime listens to DBus for events, particularly when the headphones
 (dis)connect. It will then determine which outputs (only the EQ right now) 
 it needs to reroute to (or from) the headphones.
-
-## Extra Features
-Since the multi-function button is pretty useless on Linux, I'm going to
-take its functions and use them for something useful.
-* Single-tap: Mute
-* Double-tap: Switch to speakers
-* Triple-tap: Force-reconnect
 
 ## Installation
 1) Copy the ``maxime.ini.example`` to ``~/.config/maxime.ini`` and edit appropriately
@@ -38,3 +35,10 @@ take its functions and use them for something useful.
 You can put it whever you want, just check the path in the .desktop file.
 
 By default it will log to ``/var/tmp/maxime_$USER.log``.
+
+## Roadmap
+Since the multi-function button is pretty useless on Linux, I'm going to
+take its functions and use them for something useful.
+* Single-tap: Mute
+* Double-tap: Switch to speakers
+* Triple-tap: Force-reconnect
