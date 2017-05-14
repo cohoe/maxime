@@ -36,13 +36,11 @@ You can put it whever you want, just check the path in the .desktop file.
 
 By default it will log to ``/var/tmp/maxime_$USER.log``.
 
-## Roadmap
+## Buttons
 Since the multi-function button is pretty useless on Linux, I'm going to
 take its functions and use them for something useful.
-* Single-tap: Mute
-* Double-tap: Switch to speakers
-* Triple-tap: Force-reconnect
+* Single-tap (XF86AudioPlay): Mute
+* Double-tap (XF86AudioNext): Switch to speakers
+* Triple-tap (XF86AudioPrev): Force-reconnect
 
-## Todo
-* Reset all volume levels to appropriate software values on event.
-* More error checking.
+See [this repo](https://github.com/cohoe/workstation/blob/master/roles/xfce/tasks/keyboard.yml) for implementation.

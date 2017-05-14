@@ -57,6 +57,11 @@ class App:
                             action='store_true',
                             help='simulate a connect event')
 
+        parser.add_argument('--toggle',
+                            default=False,
+                            action='store_true',
+                            help='toggle to another device')
+
         parser.add_argument('--disconnect',
                             default=False,
                             action='store_true',
@@ -230,17 +235,31 @@ class Pulse:
         pulse_conn.sink_input_move(source.index, destination.index)
 
     @staticmethod
-    def locate_sink_device(pulse_conn):
+    def locate_sink_device(pulse_conn, prefix):
         """
         Find an appropraite sink device to use as output.
         :param devices:
         :return:
         """
         for dev in pulse_conn.sink_list():
-            if dev.name.startswith("alsa_output"):
+            if dev.name.startswith(prefix):
                 return dev
 
-        raise Exception("Could not find an appropriate output device.")
+        raise Exception("Could not find an appropriate output device (prefix \"%s\")." % prefix)
+
+    @staticmethod
+    def is_bt_active(pulse_conn, name):
+        """
+        Return a boolean indicating if our BT device is active.
+        :param pulse_conn: Pulse connection object.
+        :param name: Device name to check for.
+        :return: Boolean
+        """
+        out_dev_name = Pulse.locate_sink_device(pulse_conn, "ladspa_output").description
+        logging.info("Current output description is \"%s\"" % out_dev_name)
+        if name in out_dev_name:
+            return True
+        return False
 
 
 class AudioRouter:
@@ -327,14 +346,15 @@ class AudioRouter:
         :param conn_state: Boolean of whether the device was connected or not.
         :return: None
         """
-        with PulseLib('maxime-manage') as pulse:
+        with PulseLib('maxime-manage_connection') as pulse:
             # @TODO Make this not static
             ladspa_dev = Pulse.get_sink_input_device(pulse, "LADSPA Stream")
 
             # We default to speakers, and override with headphones
-            target_device = Pulse.locate_sink_device(pulse)
+            target_device = Pulse.locate_sink_device(pulse, "alsa_output")
             if conn_state is True:
                 # We need to a wait a few seconds for Pulse to catch up
+                App.send_notification("Connecting to %s..." % self.get_bt_dev_property('Name'), "audio-headphones-bluetooth")
                 time.sleep(4)
                 try:
                     target_device = Pulse.get_sink_device(pulse, self.get_bt_dev_property('Name'))
@@ -378,20 +398,35 @@ def main():
     ar.setup_dbus()
 
     # See if we are simulating
-    if args.connect or args.disconnect:
+    if args.connect or args.disconnect or args.toggle:
         App.log_angry(logging.WARN, "Simulating an event. DBus will not monitor.")
 
         # Test if the user is paying attention
         if args.connect and args.disconnect:
             App.log_angry(logging.ERROR, "You cannot specify both connect and disconnect")
-            exit(1)
+            if args.toggle:
+                App.log_angry(logging.ERROR, "You cannot specify connect/disconnect and toggle")
+                exit(1)
 
         # Perform
         if args.connect:
             ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": True}, None)
         if args.disconnect:
             ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": False}, None)
+        if args.toggle:
+            # Detect whether we're on BT device or not and do the opposite.
+            with PulseLib('maxime-toggle_connection') as pulse:
+                current_state = Pulse.is_bt_active(pulse, ar.get_bt_dev_property('Name'))
+                if current_state:
+                    # Disconnect
+                    ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": False},
+                                     None)
+                else:
+                    # Connect
+                    ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": True},
+                                     None)
 
+        # Done with our simulations.
         App.log_angry(logging.WARN, "Simulation complete!")
         exit()
 
@@ -401,5 +436,28 @@ def main():
     dbus_loop = GLib.MainLoop()
     dbus_loop.run()
 
+
+def test():
+    # Parse command-line arguments
+    args = App.read_args()
+
+    # Setup configuration structures (Note: No logging can occur before
+    # this otherwise it will break the output)
+    config = App.read_config_file(App.get_config_file_path(args))
+    App.setup_logging(args.verbose, args.logfile)
+
+    # DBus setup
+    DBusGMainLoop(set_as_default=True)
+
+    # Setup our router object which will handle what to do when a BT event hits
+    # This must occur after the DBusGMainLoop call above.
+    ar = AudioRouter(config)
+    ar.setup_dbus()
+
+    with PulseLib('maxime-manage') as pulse:
+        pass
+
+
 if __name__ == "__main__":
     main()
+    #test()
