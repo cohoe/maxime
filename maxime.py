@@ -338,7 +338,10 @@ class AudioRouter:
         :param property: String of the property.
         :return: The value of the property.
         """
-        return self.dbus_bt_dev_properties.Get(DBus.INTERFACE_DEVICE, property)
+        try:
+            return self.dbus_bt_dev_properties.Get(DBus.INTERFACE_DEVICE, property)
+        except Exception as e:
+            logging.error("Could not retrieve property '%s' on '%s'. Error \"%s\"" % (property, DBus.INTERFACE_DEVICE, e))
 
     def manage_connection(self, conn_state):
         """
