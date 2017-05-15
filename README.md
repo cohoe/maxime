@@ -44,3 +44,9 @@ take its functions and use them for something useful.
 * Triple-tap (XF86AudioPrev): Force-reconnect
 
 See [this repo](https://github.com/cohoe/workstation/blob/master/roles/xfce/tasks/keyboard.yml) for implementation.
+
+## ToDo
+* Does not error when device is not present. Should either barf or attempt to connect for you.
+* Default log should be stdout, not a random logfile. Save that for the daemon mode.
+* Errors should produce a notification
+* Switching profiles should reconnect
