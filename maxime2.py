@@ -12,7 +12,6 @@ from pulsectl import Pulse as PulseLib
 
 # @TODO
 # Toggle mode
-# Headset
 # Bluetooth connection management
 # Comments
 
@@ -229,9 +228,10 @@ class DBusHelper:
     INTERFACE_NOTIFICATIONS = "org.freedesktop.Notifications"
 
     # Icons
-    ICON_WIRELESS="audio-headphones-bluetooth"
-    ICON_GENERIC="audio-card"
-    ICON_SPEAKERS="audio-speakers"
+    ICON_WIRELESS = "audio-headphones-bluetooth"
+    ICON_GENERIC = "audio-card"
+    ICON_SPEAKERS = "audio-speakers"
+    ICON_HEADSET = "audio-headset"
 
     @staticmethod
     def send_notification(text, icon='audio-card', time=5000, actions_list=''):
@@ -431,11 +431,22 @@ class PulseAudio:
         target_device = self._lookup_sink_output_device(device_name)
         logging.debug("Target device is \"%s\"" % target_device.description)
 
-        self._move_input(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
+        self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
 
     def activate_headset(self):
         logging.info("Activating headset.")
-        logging.error("Headset not implemented!")
+
+        out_device_name = self.hs_device.output_device
+        in_device_name = self.hs_device.input_device
+        try:
+            target_output_device = self._lookup_sink_output_device(out_device_name)
+            target_input_device = self._lookup_source_device(in_device_name)
+        except:
+            return
+
+        logging.debug("Target output device is \"%s\"" % target_output_device.description)
+        self._move_output(self.ladspa_device, target_output_device, DBusHelper.ICON_HEADSET)
+        self._set_input(target_input_device)
 
     def activate_speakers(self):
         logging.info("Activating speakers.")
@@ -444,7 +455,7 @@ class PulseAudio:
         target_device = self._lookup_sink_output_device(device_name)
         logging.debug("Target device is \"%s\"" % target_device.description)
 
-        self._move_input(self.ladspa_device, target_device, DBusHelper.ICON_SPEAKERS)
+        self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_SPEAKERS)
 
     def _lookup_sink_input_device(self, name):
         """
@@ -472,8 +483,24 @@ class PulseAudio:
                 return device
 
         logging.error("Sink Input device not found! (Was searching for \"%s\")" % description)
+        raise Exception("Sink Input device not found! (Was searching for \"%s\")" % description)
 
-    def _move_input(self, source, destination, icon):
+    def _lookup_source_device(self, description):
+        """
+        Find a Pulse source device. These are what show up in the "Input Devices"
+        tab in pavucontrol.
+        :param prefix: 
+        :param description: 
+        :return: 
+        """
+        for device in self.pulse_conn.source_list():
+            if device.description == description:
+                return device
+
+        logging.error("Source device not found! (Was searching for \"%s\")" % description)
+        raise Exception("Source device not found! (Was searching for \"%s\")" % description)
+
+    def _move_output(self, source, destination, icon):
         """
         Move a Pulse stream
         :param source: Source device that we want to redirect.
@@ -481,10 +508,19 @@ class PulseAudio:
         :return: None
         """
         logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
-        self.pulse_conn.sink_input_move(source.index, destination.index)
+        #self.pulse_conn.sink_input_move(source.index, destination.index)
 
         text = "Routed %s to %s" % (source.name, destination.description)
         DBusHelper.send_notification(text, icon)
+
+    def _set_input(self, device):
+        """
+        Set Pulse input device.
+        :param device: 
+        :return: 
+        """
+        logging.info("Setting default source device to \"%s\"" % device.description)
+        self.pulse_conn.source_default_set(device.name)
 
     def manage_connection(self, conn_state):
         """
