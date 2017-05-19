@@ -11,7 +11,6 @@ from gi.repository import GLib
 from pulsectl import Pulse as PulseLib
 
 # @TODO
-# Toggle mode
 # Bluetooth connection management
 # Comments
 
@@ -24,10 +23,11 @@ class Maxime:
     MODE_DISCONNECT = "disconnect"
     MODE_LISTEN = "listen"
     MODE_DAEMON = "daemon"
+    MODE_TOGGLE = "toggle"
 
-    ROUTE_SPEAKERS="speakers"
-    ROUTE_HEADSET="headset"
-    ROUTE_WIRELESS="wireless"
+    ROUTE_SPEAKERS = "speakers"
+    ROUTE_HEADSET = "headset"
+    ROUTE_WIRELESS = "wireless"
 
     def __init__(self):
         """
@@ -100,6 +100,11 @@ class Maxime:
                             action='store_true',
                             help='Listen for events but do not act on them')
 
+        parser.add_argument('--toggle',
+                            default=False,
+                            action='store_true',
+                            help='toggle between speakers/wireless')
+
         return parser.parse_args()
 
     @staticmethod
@@ -169,6 +174,8 @@ class Maxime:
         """
         # Determine what we're going to do
         if self.args.route is not None:
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --route and --toggle")
             if self.args.connect is True or self.args.disconnect is True or self.args.listen is True:
                 self.exit_err("You cannot specify --route and --connect/--disconnect/--listen")
 
@@ -178,21 +185,28 @@ class Maxime:
         if self.args.connect is True:
             if self.args.disconnect is True:
                 self.exit_err("You cannot specify both --connect and --disconnect.")
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --connect and --toggle")
 
             self._set_mode(Maxime.MODE_CONNECT)
             return
-
         elif self.args.disconnect is True:
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --disconnect and --toggle")
             self._set_mode(Maxime.MODE_DISCONNECT)
             return
-        else:
-            logging.info("Starting daemon mode.")
-            if self.args.listen is True:
-                self._set_mode(Maxime.MODE_LISTEN)
-                return
 
-            self._set_mode(Maxime.MODE_DAEMON)
+        if self.args.toggle is True:
+            self._set_mode(Maxime.MODE_TOGGLE)
             return
+
+        logging.info("Starting daemon mode.")
+        if self.args.listen is True:
+            self._set_mode(Maxime.MODE_LISTEN)
+            return
+
+        self._set_mode(Maxime.MODE_DAEMON)
+        return
 
     def _set_mode(self, mode):
         """
@@ -216,6 +230,23 @@ class Maxime:
             pulse.activate_speakers()
         else:
             self.exit_err("Routing destination must be speakers|wireless|headset")
+
+    def toggle(self, pulse):
+        """
+        Toggle between wireless and speakers.
+        :param pulse: 
+        :return: 
+        """
+        logging.debug("Begin toggle")
+        ladspa_device = pulse._lookup_sink_output_device("LADSPA Plugin Multiband EQ")
+        logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
+        if pulse.bt_device.output_device in ladspa_device.description:
+            logging.info("Current output is wireless. Switching to speakers.")
+            pulse.activate_speakers()
+        else:
+            logging.info("Current output is not wireless. Switching to wireless.")
+            pulse.activate_wireless()
+
 
 
 class DBusHelper:
@@ -422,15 +453,24 @@ class PulseAudio:
     def activate_wireless(self):
         logging.info("Activating wireless.")
 
-        #device_name = self.bt_device.get_property('Name')
         device_name = self.bt_device.output_device
-        DBusHelper.send_notification("Routing to %s..." % device_name, DBusHelper.ICON_WIRELESS)
 
         # We need to a wait a few seconds for Pulse to catch up
-        time.sleep(4)
-        target_device = self._lookup_sink_output_device(device_name)
-        logging.debug("Target device is \"%s\"" % target_device.description)
+        first_run = True
+        while True:
+            try:
+                target_device = self._lookup_sink_output_device(device_name)
+                break
+            except Exception as e:
+                if "not found" in e.message:
+                    if first_run is True:
+                        DBusHelper.send_notification("Routing to %s..." % device_name, DBusHelper.ICON_WIRELESS)
+                        first_run = False
+                    logging.debug("Sleeping for 1 second so that Pulse can sort itself out.")
+                    time.sleep(1)
+                logging.error("Unable to find wireless device.")
 
+        logging.debug("Target device is \"%s\"" % target_device.description)
         self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
 
     def activate_headset(self):
@@ -479,7 +519,7 @@ class PulseAudio:
         :return: 
         """
         for device in self.pulse_conn.sink_list():
-            if device.description == description:
+            if device.description.startswith(description):
                 return device
 
         logging.error("Sink Input device not found! (Was searching for \"%s\")" % description)
@@ -508,7 +548,7 @@ class PulseAudio:
         :return: None
         """
         logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
-        #self.pulse_conn.sink_input_move(source.index, destination.index)
+        self.pulse_conn.sink_input_move(source.index, destination.index)
 
         text = "Routed %s to %s" % (source.name, destination.description)
         DBusHelper.send_notification(text, icon)
@@ -535,20 +575,6 @@ class PulseAudio:
             # Disconnection
             self.activate_speakers()
 
-    def placeholder(self):
-
-        # We default to speakers, and override with headphones
-        target_device = Pulse.locate_sink_device(pulse, "alsa_output")
-
-        # @TODO This should probably deal with errors, but until then...
-        # Send notification
-        icon = "audio-speakers"
-        if conn_state is True:
-            icon = "audio-headphones-bluetooth"
-        text = "Connected to %s" % target_device.description
-        App.send_notification(text, icon)
-        logging.info("Success!")
-
 
 def main():
     """
@@ -566,6 +592,8 @@ def main():
 
     if max.mode == max.MODE_ROUTE:
         max.route(pulse)
+    elif max.mode == max.MODE_TOGGLE:
+        max.toggle(pulse)
     else:
         # Daemon Mode
         dbus_listener = DBusListener(bt_device, pulse)
