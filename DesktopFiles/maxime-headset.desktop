@@ -1,0 +1,11 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=0.0.1
+Type=Application
+Name=Headset
+Comment=Headset
+Exec=/usr/local/bin/maxime.py --route headset
+StartupNotify=false
+Terminal=false
+Hidden=false
+Icon=audio-headset

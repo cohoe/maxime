@@ -13,6 +13,7 @@ from pulsectl import Pulse as PulseLib
 # @TODO
 # Bluetooth connection management
 # Comments
+# --status (XF86AudioPrev)
 
 class Maxime:
     """
@@ -237,7 +238,6 @@ class Maxime:
         :param pulse: 
         :return: 
         """
-        logging.debug("Begin toggle")
         ladspa_device = pulse._lookup_sink_output_device("LADSPA Plugin Multiband EQ")
         logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
         if pulse.bt_device.output_device in ladspa_device.description:
@@ -451,7 +451,7 @@ class PulseAudio:
         self.sp_device = sp_device
 
     def activate_wireless(self):
-        logging.info("Activating wireless.")
+        logging.debug("Activating wireless.")
 
         device_name = self.bt_device.output_device
 
@@ -474,7 +474,7 @@ class PulseAudio:
         self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
 
     def activate_headset(self):
-        logging.info("Activating headset.")
+        logging.debug("Activating headset.")
 
         out_device_name = self.hs_device.output_device
         in_device_name = self.hs_device.input_device
@@ -489,7 +489,7 @@ class PulseAudio:
         self._set_input(target_input_device)
 
     def activate_speakers(self):
-        logging.info("Activating speakers.")
+        logging.debug("Activating speakers.")
 
         device_name = self.sp_device.output_device
         target_device = self._lookup_sink_output_device(device_name)
@@ -581,7 +581,7 @@ def main():
     Main program logic. Wait for dbus events and go from there.
     """
     max = Maxime()
-    logging.info("Our mode is: %s" % max.mode)
+    logging.debug("Our mode is: %s" % max.mode)
 
     # @TODO This is hax
     # Setup PulseAudio
@@ -599,7 +599,7 @@ def main():
         dbus_listener = DBusListener(bt_device, pulse)
         dbus_listener.listen()
 
-    logging.info("Reached the end, for now.")
+    logging.info("Exiting.")
 
 if __name__ == "__main__":
     main()
