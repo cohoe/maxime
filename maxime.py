@@ -10,14 +10,111 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 from pulsectl import Pulse as PulseLib
 
+# @TODO
+# Bluetooth connection management
+# Comments
 
-class App:
+class Maxime:
     """
-    Shell class for application methods (arguments, config, that sort of
-    stuff).
+    Main application logic class.
     """
+    MODE_ROUTE = "route"
+    MODE_CONNECT = "connect"
+    MODE_DISCONNECT = "disconnect"
+    MODE_LISTEN = "listen"
+    MODE_DAEMON = "daemon"
+    MODE_TOGGLE = "toggle"
+    MODE_STATUS = "status"
+
+    ROUTE_SPEAKERS = "speakers"
+    ROUTE_HEADSET = "headset"
+    ROUTE_WIRELESS = "wireless"
+
+    def __init__(self):
+        """
+        Constructor
+        """
+        # CLI Args
+        self.args = self._setup_args(self)
+
+        # Config File
+        config_file_path = self._get_config_file_path(self)
+        self.config = self._read_config_file(self, config_file_path)
+        self._validate_config(self)
+
+        # Logging
+        self._setup_logging(self)
+
+        # Program mode
+        # This cannot run until we have setup logging!
+        self.mode = None
+        self._validate_args()
+
     @staticmethod
-    def read_config_file(file_path):
+    def _validate_config(self):
+        """
+        Validate the input from a configuration file.
+        :param self: 
+        :return: 
+        """
+        pass
+
+    @staticmethod
+    def _setup_args(self):
+        """
+        Read arguments from the CLI.
+        :return: ArgParse object.
+        """
+        description = "Bluetooth/Pulse audio routing manager."
+        epilog = "Written by Grant Cohoe (https://grantcohoe.com)"
+
+        parser = argparse.ArgumentParser(description=description, epilog=epilog)
+        parser.add_argument('-c', '--config', type=str,
+                            default='~/.config/maxime.ini',
+                            help='path to configuration file (defaults to ~/.config/maxime.ini)')
+
+        parser.add_argument('-d', '--debug',
+                             default=False,
+                             action='store_true',
+                             help='enable debug logging')
+
+        parser.add_argument('-l', '--logfile', type=str,
+                            default=None,
+                            help='path to log file (otherwise logs to STDOUT)')
+
+        parser.add_argument('--route',
+                            default=None,
+                            help='send audio to a device (wireless, headset, speakers)')
+
+        parser.add_argument('--connect',
+                            default=False,
+                            action='store_true',
+                            help='trigger a wireless connect event')
+
+        parser.add_argument('--disconnect',
+                            default=False,
+                            action='store_true',
+                            help='trigger a wireless disconnect event')
+
+        parser.add_argument('--listen',
+                            default=False,
+                            action='store_true',
+                            help='Listen for events but do not act on them')
+
+        parser.add_argument('--toggle',
+                            default=False,
+                            action='store_true',
+                            help='toggle between speakers/wireless')
+
+        parser.add_argument('--status',
+                            default=False,
+                            action='store_true',
+                            help='show the current output device')
+
+        return parser.parse_args()
+
+    @staticmethod
+    def _read_config_file(self, file_path):
         """
         Read configuration directives from the config file.
         :param file_path: Path to the file that we want to read.
@@ -30,102 +127,172 @@ class App:
         return config
 
     @staticmethod
-    def read_args():
-        """
-        Read arguments from the CLI.
-        :return: ArgParse object.
-        """
-        description = "Bluetooth audio connection manager."
-        epilog = "Written by Grant Cohoe (https://grantcohoe.com)"
-
-        parser = argparse.ArgumentParser(description=description, epilog=epilog)
-        parser.add_argument('-c', '--config', type=str,
-                            default='~/.config/maxime.ini',
-                            help='path to configuration file')
-
-        parser.add_argument('-v', '--verbose',
-                             default=False,
-                             action='store_true',
-                             help='enable verbose logging')
-
-        parser.add_argument('-l', '--logfile', type=str,
-                            default=('/var/tmp/maxime_%s.log' % os.getlogin()),
-                            help='path to log file (or emptystring for STDOUT)')
-
-        parser.add_argument('--connect',
-                            default=False,
-                            action='store_true',
-                            help='simulate a connect event')
-
-        parser.add_argument('--toggle',
-                            default=False,
-                            action='store_true',
-                            help='toggle to another device')
-
-        parser.add_argument('--disconnect',
-                            default=False,
-                            action='store_true',
-                            help='simulate a disconnect event')
-
-        return parser.parse_args()
-
-    @staticmethod
-    def get_config_file_path(args):
+    def _get_config_file_path(self):
         """
         Return a normalized path to our configuration file.
-        :param args: ArgParse object.
         :return: String of the path to our config file.
         """
         # Normalize our path
-        file_path = args.config
+        file_path = self.args.config
         file_path = os.path.expanduser(file_path)
         file_path = os.path.abspath(file_path)
 
         # Test if the file exists
         if os.path.exists(file_path) is False:
-            raise Exception("Config file at '%s' does not exist!" % file_path)
+            self.exit_err("Config file at '%s' does not exist!" % file_path)
 
         return file_path
 
     @staticmethod
-    def setup_logging(verbose, filepath):
+    def _setup_logging(self):
         """
         Setup the logging facility.
-        :param verbose: Boolean of whether to be loud or not.
-        :param filepath: Log file path.
         :return: None
         """
-        if filepath is not '':
-            if os.path.exists(filepath) is False:
-                os.mknod(filepath)
+        log_level = logging.INFO
+
+        if self.args.debug is True:
+            log_level = logging.DEBUG
 
         # You can only call this once, or others will be a noop.
-        if verbose is True:
-            logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', 
-                                datefmt='%m/%d/%Y %H:%M:%S',
-                                filename=filepath,
-                                level=logging.DEBUG)
-        else:
-            logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', 
-                                datefmt='%m/%d/%Y %H:%M:%S',
-                                filename=filepath,
-                                level=logging.INFO)
+        logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s',
+                            datefmt='%m/%d/%Y %H:%M:%S',
+                            filename=self.args.logfile,
+                            level=log_level)
 
         logging.info("Starting logging facility")
 
     @staticmethod
-    def log_angry(level, message):
+    def exit_err(message):
         """
-        Log a message to both stdout and the log facility.
-        :param level: The logging.LEVEL
-        :param message: The message
+        Exit with an error message.
+        :param message: The message to print.
         :return: None
         """
-        logging.log(level, message)
-        print message
+        logging.error(message)
+        logging.info("Exiting with error.")
+        exit(1)
+        
+    def _validate_args(self):
+        """
+        Figure out what we should be doing based on CLI args
+        :return: 
+        """
+        # Determine what we're going to do
+        if self.args.status is True:
+            if self.args.connect is True or self.args.disconnect is True:
+                self.exit_err("You cannot specify --status and --connect/--disconnect")
+            if self.args.route is not None:
+                self.exit_err("You cannot specify --status and --route")
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --status and --toggle")
+            if self.args.listen is True:
+                self.exit_err("You cannot specify --status and --listen")
+            self._set_mode(Maxime.MODE_STATUS)
+            return
+
+        if self.args.route is not None:
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --route and --toggle")
+            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True:
+                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen")
+
+            self._set_mode(Maxime.MODE_ROUTE)
+            return
+
+        if self.args.connect is True:
+            if self.args.disconnect is True:
+                self.exit_err("You cannot specify both --connect and --disconnect.")
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --connect and --toggle")
+
+            self._set_mode(Maxime.MODE_CONNECT)
+            return
+        elif self.args.disconnect is True:
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --disconnect and --toggle")
+            self._set_mode(Maxime.MODE_DISCONNECT)
+            return
+
+        if self.args.toggle is True:
+            self._set_mode(Maxime.MODE_TOGGLE)
+            return
+
+        logging.info("Starting daemon mode.")
+        if self.args.listen is True:
+            self._set_mode(Maxime.MODE_LISTEN)
+            return
+
+        self._set_mode(Maxime.MODE_DAEMON)
+        return
+
+    def _set_mode(self, mode):
+        """
+        Set the run mode of the program.
+        :return: 
+        """
+        logging.debug("Setting mode to %s" % mode)
+        self.mode = mode
+
+    def route(self, pulse):
+        """
+        Route audio stream.
+        :return: 
+        """
+        destination = self.args.route.lower()
+        if destination == self.ROUTE_WIRELESS:
+            pulse.activate_wireless()
+        elif destination == self.ROUTE_HEADSET:
+            pulse.activate_headset()
+        elif destination == self.ROUTE_SPEAKERS:
+            pulse.activate_speakers()
+        else:
+            self.exit_err("Routing destination must be speakers|wireless|headset")
+
+    def toggle(self, pulse):
+        """
+        Toggle between wireless and speakers.
+        :param pulse: 
+        :return: 
+        """
+        ladspa_device = pulse._lookup_sink_output_device("LADSPA Plugin Multiband EQ")
+        logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
+        if pulse.bt_device.output_device in ladspa_device.description:
+            logging.info("Current output is wireless. Switching to speakers.")
+            pulse.activate_speakers()
+        else:
+            logging.info("Current output is not wireless. Switching to wireless.")
+            pulse.activate_wireless()
+
+    def status(self, pulse):
+        """
+        Show the current output device.
+        :param pulse: 
+        :return: 
+        """
+        ladspa_device = pulse._lookup_sink_output_device("LADSPA Plugin Multiband EQ")
+        logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
+        output_string = ladspa_device.description.replace("LADSPA Plugin Multiband EQ on ", "")
+        DBusHelper.send_notification("Current output is \"%s\"" % output_string)
+
+
+class DBusHelper:
+    """
+    Shell class for DBus-related functions.
+    """
+    # Notifications
+    SERVICE_NOTIFICATIONS = "org.freedesktop.Notifications"
+    PATH_NOTIFICATIONS = "/org/freedesktop/Notifications"
+    INTERFACE_NOTIFICATIONS = "org.freedesktop.Notifications"
+
+    # Icons
+    ICON_WIRELESS = "audio-headphones-bluetooth"
+    ICON_GENERIC = "audio-card"
+    ICON_SPEAKERS = "audio-speakers"
+    ICON_HEADSET = "audio-headset"
 
     @staticmethod
-    def send_notification(text, icon='', time=5000):
+    def send_notification(text, icon='audio-card', time=5000, actions_list=''):
         """
         Send an OS notification to the user.
         :param text: Text to display.
@@ -139,34 +306,45 @@ class App:
         app_name = "Maxime"
         id_num_to_replace = 0
         title = app_name
-
-        actions_list = ''
         hint = ''
 
         # Create the objects and send!
         bus = dbus.SessionBus()
-        dbus_notify_proxy = bus.get_object(DBus.SERVICE_NOTIFICATIONS, DBus.PATH_NOTIFICATIONS)
-        dbus_notify_interface = dbus.Interface(dbus_notify_proxy, DBus.INTERFACE_NOTIFICATIONS)
+        dbus_notify_proxy = bus.get_object(DBusHelper.SERVICE_NOTIFICATIONS, DBusHelper.PATH_NOTIFICATIONS)
+        dbus_notify_interface = dbus.Interface(dbus_notify_proxy, DBusHelper.INTERFACE_NOTIFICATIONS)
         dbus_notify_interface.Notify(app_name, id_num_to_replace, icon,
                                      title, text, actions_list, hint, time)
+        bus.close()
+        logging.debug("Sent notification to DBus: %s" % text)
 
-class DBus:
+
+class GenericAudioDevice:
+    def __init__(self, config, mode):
+        self.input_device = config.get(mode, 'input_device')
+        self.output_device = config.get(mode, 'output_device')
+        
+
+class BluetoothDevice:
     """
-    Shell class for DBus-related functions.
+    Bluetooth specific crap.
     """
-    SERVICE_BT = "org.bluez"
-    INTERFACE_PROPERTIES = "org.freedesktop.DBus.Properties"
-    INTERFACE_DEVICE = "org.bluez.Device1"
+    DBUS_SERVICE = "org.bluez"
+    DBUS_INTERFACE_DEVICE = "org.bluez.Device1"
 
-    SIGNAL_PROPERTIESCHANGED = "PropertiesChanged"
-
-    SERVICE_NOTIFICATIONS = "org.freedesktop.Notifications"
-    PATH_NOTIFICATIONS = "/org/freedesktop/Notifications"
-    INTERFACE_NOTIFICATIONS = "org.freedesktop.Notifications"
-
+    def __init__(self, config):
+        """
+        Constructor
+        :param config: Validated ConfigParser object 
+        """
+        self.adapter = config.get('bluetooth', 'adapter')
+        self.mac = config.get('bluetooth', 'device_mac')
+        self.dbus_object_path = self._get_dbus_device_object_path(self.adapter, self.mac)
+        self.proxy = None
+        self.properties = None
+        self.output_device = config.get('bluetooth', 'output_device')
 
     @staticmethod
-    def get_normal_mac(mac):
+    def _get_normal_mac(mac):
         """
         Return a DBus-normalized MAC address.
         :param mac: MAC address to normalize
@@ -174,112 +352,51 @@ class DBus:
         """
         return mac.replace(':','_')
 
-    @staticmethod
-    def get_bt_device_path(adapter, mac):
+    def _get_dbus_device_object_path(self, adapter, mac):
         """
         Return the DBus object path of a particular device.
         :param adapter: The Bluetooth interface.
         :param mac: The normalized MAC address.
         :return: A string of the device path.
         """
-        mac = DBus.get_normal_mac(mac)
-        service = DBus.SERVICE_BT.replace('.', '/')
+        mac = self._get_normal_mac(mac)
+        service = self.DBUS_SERVICE.replace('.', '/')
         obj_path = "/%s/%s/dev_%s" % (service, adapter, mac)
 
         return obj_path
 
+    def get_property(self, key):
+        """
+        Return a device property from DBus.
+        :param key: 
+        :return: 
+        """
+        try:
+            return self.properties.Get(self.DBUS_INTERFACE_DEVICE, key)
+        except Exception as e:
+            logging.error("Could not retrieve property '%s' on '%s'. Error \"%s\"" % (key, self.DBUS_INTERFACE_DEVICE, e))
 
-class Pulse:
+
+class DBusListener:
     """
-    Shell class for Pulse related functions.
+    Class to deal with DBus events.
     """
-    @staticmethod
-    def get_sink_device(pulse_conn, description):
-        """
-        Return a pulse device
-        :param pulse_conn: Pulse connection object.
-        :param description: The text used for identification.
-        :return: A Pulse device or None
-        """
-        for dev in pulse_conn.sink_list():
-            if dev.description == description:
-                return dev
+    # Static vars for DBus properties and interfaces
+    INTERFACE_PROPERTIES = "org.freedesktop.DBus.Properties"
+    SIGNAL_PROPERTIESCHANGED = "PropertiesChanged"
 
-        logging.error("Sink device not found! (Was searching for \"%s\")" % description)
-        raise Exception("Sink device not found! (Was searching for \"%s\")" % description)
+    def __init__(self, device, pulse):
+        """
+        Constructor
+        """
+        DBusGMainLoop(set_as_default=True)
+        proxy, properties = self._setup_dbus(device)
+        device.proxy = proxy
+        device.properties = properties
+        self.device = device
+        self.pulse = pulse
 
-    @staticmethod
-    def get_sink_input_device(pulse_conn, name):
-        """
-        Return a Pulse device of our audio source (in my case, LADSPA EQ)
-        :param pulse_conn: Pulse connection object.
-        :param name: The name of the device to search for.
-        :return: A Pulse device or None
-        """
-        for dev in pulse_conn.sink_input_list():
-            if dev.name == name:
-                return dev
-
-        logging.error("Sink Input device not found! (Was searching for \"%s\")" % name)
-
-    @staticmethod
-    def move_input(pulse_conn, source, destination):
-        """
-        Move a Pulse stream
-        :param pulse_conn: Pulse connection object.
-        :param source: Source device that we want to redirect.
-        :param destination: Target device that we want to hear from.
-        :return: None
-        """
-        logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
-        pulse_conn.sink_input_move(source.index, destination.index)
-
-    @staticmethod
-    def locate_sink_device(pulse_conn, prefix):
-        """
-        Find an appropraite sink device to use as output.
-        :param devices:
-        :return:
-        """
-        for dev in pulse_conn.sink_list():
-            if dev.name.startswith(prefix):
-                return dev
-
-        raise Exception("Could not find an appropriate output device (prefix \"%s\")." % prefix)
-
-    @staticmethod
-    def is_bt_active(pulse_conn, name):
-        """
-        Return a boolean indicating if our BT device is active.
-        :param pulse_conn: Pulse connection object.
-        :param name: Device name to check for.
-        :return: Boolean
-        """
-        out_dev_name = Pulse.locate_sink_device(pulse_conn, "ladspa_output").description
-        logging.info("Current output description is \"%s\"" % out_dev_name)
-        if name in out_dev_name:
-            return True
-        return False
-
-
-class AudioRouter:
-    """
-    Main functional class. Holds the logic for listening for DBus events and
-    responding to them.
-    """
-    def __init__(self, config):
-        """
-        Constructor for the AudioRouter class. It sets some other basic stuff for us.
-        :param config: The output from ConfigParser
-        """
-        self.config = config
-        self.bt_adapter = config.get('bluetooth', 'adapter')
-        self.bt_mac = config.get('bluetooth', 'device_mac')
-        self.bt_object_path = DBus.get_bt_device_path(self.bt_adapter, self.bt_mac)
-        self.dbus_bt_dev_proxy = None
-        self.dbus_bt_dev_properties = None
-
-    def setup_dbus(self):
+    def _setup_dbus(self, device):
         """
         Setup our DBus proxy object and properties interface. The proxy object
         is used to perform operations against a specific DBus object.
@@ -288,15 +405,26 @@ class AudioRouter:
         :return: None
         """
         bus = dbus.SystemBus()
-        self.dbus_bt_dev_proxy = bus.get_object(DBus.SERVICE_BT,
-                                                self.bt_object_path)
-        self.dbus_bt_dev_proxy.connect_to_signal(DBus.SIGNAL_PROPERTIESCHANGED,
-                                                 self._dbus_handler,
-                                                 dbus_interface=DBus.INTERFACE_PROPERTIES)
-        self.dbus_bt_dev_properties = dbus.Interface(self.dbus_bt_dev_proxy,
-                                                     dbus_interface=DBus.INTERFACE_PROPERTIES)
+        bt_dev_proxy = bus.get_object(BluetoothDevice.DBUS_SERVICE, device.dbus_object_path)
+        bt_dev_proxy.connect_to_signal(self.SIGNAL_PROPERTIESCHANGED,
+                                       self._bluetooth_signal_handler,
+                                       dbus_interface=self.INTERFACE_PROPERTIES)
+        bt_dev_properties = dbus.Interface(bt_dev_proxy,
+                                           dbus_interface=self.INTERFACE_PROPERTIES)
 
-    def _dbus_handler(self, interface, changed_properties, signature):
+        return bt_dev_proxy, bt_dev_properties
+
+    def listen(self):
+        """
+        Listen for events and do stuff when they happen!
+        :return: 
+        """
+        loop_msg = "Started listening for BT audio devices."
+        DBusHelper.send_notification(text=loop_msg, icon="audio-card")
+        dbus_loop = GLib.MainLoop()
+        dbus_loop.run()
+
+    def _bluetooth_signal_handler(self, interface, changed_properties, signature):
         """
         Event handler for a change in a Bluetooth device state.
         :param interface: String of the DBus interface.
@@ -304,21 +432,21 @@ class AudioRouter:
         :param signature: String of something that I don't care about.
         :return: None
         """
-        logging.info("%s: Change detected." % interface)
+        logging.debug("%s: Change detected." % interface)
 
         # Right now I only care about device connectivity
-        if interface != DBus.INTERFACE_DEVICE:
-            logging.info("%s: Ignorning change." % interface)
+        if interface != BluetoothDevice.DBUS_INTERFACE_DEVICE:
+            logging.debug("%s: Ignoring change." % interface)
             return
 
         # Test for the appropriate key in the messages we will get
         try:
-            conn_state = bool(changed_properties['Connected'])
+            connected = bool(changed_properties['Connected'])
         except KeyError:
             # Ignore a ServicesResolved message
             try:
                 bool(changed_properties['ServicesResolved'])
-                logging.info("%s: Ignoring ServicesResolved." % interface)
+                logging.debug("%s: Ignoring ServicesResolved." % interface)
                 return
             except Exception:
                 logging.error("%s: Some weird error occurred "
@@ -329,138 +457,178 @@ class AudioRouter:
             return
 
         # Deal with the connection state
-        logging.info("%s: Connected -> %s" % (interface, conn_state))
-        self.manage_connection(conn_state)
+        logging.info("%s: Connected -> %s" % (interface, connected))
+        self.pulse.manage_connection(connected)
 
-    def get_bt_dev_property(self, property):
+
+class PulseAudio:
+    """
+    PulseAudio connection
+    """
+    def __init__(self, config, bt_device, sp_device, hs_device):
         """
-        Return a DBus property from our device.
-        :param property: String of the property.
-        :return: The value of the property.
+        Constructor for PulseAudio connection.
+        :param config: 
         """
+        self.config = config
+        self.pulse_conn = PulseLib('maxime-manage_connection')
+        self.ladspa_device = self._lookup_sink_input_device("LADSPA Stream")
+        self.bt_device = bt_device
+        self.hs_device = hs_device
+        self.sp_device = sp_device
+
+    def activate_wireless(self):
+        logging.debug("Activating wireless.")
+
+        device_name = self.bt_device.output_device
+
+        # We need to a wait a few seconds for Pulse to catch up
+        first_run = True
+        while True:
+            try:
+                target_device = self._lookup_sink_output_device(device_name)
+                break
+            except Exception as e:
+                if "not found" in e.message:
+                    if first_run is True:
+                        DBusHelper.send_notification("Routing to %s..." % device_name, DBusHelper.ICON_WIRELESS)
+                        first_run = False
+                    logging.debug("Sleeping for 1 second so that Pulse can sort itself out.")
+                    time.sleep(1)
+                logging.error("Unable to find wireless device.")
+
+        logging.debug("Target device is \"%s\"" % target_device.description)
+        self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
+
+    def activate_headset(self):
+        logging.debug("Activating headset.")
+
+        out_device_name = self.hs_device.output_device
+        in_device_name = self.hs_device.input_device
         try:
-            return self.dbus_bt_dev_properties.Get(DBus.INTERFACE_DEVICE, property)
-        except Exception as e:
-            logging.error("Could not retrieve property '%s' on '%s'. Error \"%s\"" % (property, DBus.INTERFACE_DEVICE, e))
+            target_output_device = self._lookup_sink_output_device(out_device_name)
+            target_input_device = self._lookup_source_device(in_device_name)
+        except:
+            return
+
+        logging.debug("Target output device is \"%s\"" % target_output_device.description)
+        self._move_output(self.ladspa_device, target_output_device, DBusHelper.ICON_HEADSET)
+        self._set_input(target_input_device)
+
+    def activate_speakers(self):
+        logging.debug("Activating speakers.")
+
+        device_name = self.sp_device.output_device
+        target_device = self._lookup_sink_output_device(device_name)
+        logging.debug("Target device is \"%s\"" % target_device.description)
+
+        self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_SPEAKERS)
+
+    def _lookup_sink_input_device(self, name):
+        """
+        Return a Pulse sink input device. These are the items in the "Playback"
+        tab in pavucontrol.
+        :param name: 
+        :return: 
+        """
+        for device in self.pulse_conn.sink_input_list():
+            if device.name == name:
+                return device
+
+        logging.error("Sink Input device not found! (Was searching for \"%s\")" % name)
+
+    def _lookup_sink_output_device(self, description):
+        """
+        Find a Pulse Sink device. These are what show up in the "Output Devices"
+        tab in pavucontrol.
+        :param prefix: 
+        :param description: 
+        :return: 
+        """
+        for device in self.pulse_conn.sink_list():
+            if device.description.startswith(description):
+                return device
+
+        logging.error("Sink Input device not found! (Was searching for \"%s\")" % description)
+        raise Exception("Sink Input device not found! (Was searching for \"%s\")" % description)
+
+    def _lookup_source_device(self, description):
+        """
+        Find a Pulse source device. These are what show up in the "Input Devices"
+        tab in pavucontrol.
+        :param prefix: 
+        :param description: 
+        :return: 
+        """
+        for device in self.pulse_conn.source_list():
+            if device.description == description:
+                return device
+
+        logging.error("Source device not found! (Was searching for \"%s\")" % description)
+        raise Exception("Source device not found! (Was searching for \"%s\")" % description)
+
+    def _move_output(self, source, destination, icon):
+        """
+        Move a Pulse stream
+        :param source: Source device that we want to redirect.
+        :param destination: Target device that we want to hear from.
+        :return: None
+        """
+        logging.info("Moving stream of \"%s\" to \"%s\"" % (source.name, destination.description))
+        self.pulse_conn.sink_input_move(source.index, destination.index)
+
+        text = "Routed %s to %s" % (source.name, destination.description)
+        DBusHelper.send_notification(text, icon)
+
+    def _set_input(self, device):
+        """
+        Set Pulse input device.
+        :param device: 
+        :return: 
+        """
+        logging.info("Setting default source device to \"%s\"" % device.description)
+        self.pulse_conn.source_default_set(device.name)
 
     def manage_connection(self, conn_state):
         """
-        Perform connection or disconnection actions from an event.
+        Decide what to activate based on connection event
         :param conn_state: Boolean of whether the device was connected or not.
         :return: None
         """
-        with PulseLib('maxime-manage_connection') as pulse:
-            # @TODO Make this not static
-            ladspa_dev = Pulse.get_sink_input_device(pulse, "LADSPA Stream")
-
-            # We default to speakers, and override with headphones
-            target_device = Pulse.locate_sink_device(pulse, "alsa_output")
-            if conn_state is True:
-                # We need to a wait a few seconds for Pulse to catch up
-                App.send_notification("Connecting to %s..." % self.get_bt_dev_property('Name'), "audio-headphones-bluetooth")
-                time.sleep(4)
-                try:
-                    target_device = Pulse.get_sink_device(pulse, self.get_bt_dev_property('Name'))
-                except Exception:
-                    logging.error("Failed to find connected sink.")
-                    return
-
-            logging.info("Target device is \"%s\"" % target_device.description)
-
-            # Tell Pulse to move the stream to our target device
-            Pulse.move_input(pulse, ladspa_dev, target_device)
-
-        # @TODO This should probably deal with errors, but until then...
-        # Send notification
-        icon = "audio-speakers"
         if conn_state is True:
-            icon = "audio-headphones-bluetooth"
-        text = "Connected to %s" % target_device.description
-        App.send_notification(text, icon)
-        logging.info("Success!")
+            # Connection
+            self.activate_wireless()
+        elif conn_state is False:
+            # Disconnection
+            self.activate_speakers()
 
 
 def main():
     """
     Main program logic. Wait for dbus events and go from there.
     """
-    # Parse command-line arguments
-    args = App.read_args()
+    max = Maxime()
+    logging.debug("Our mode is: %s" % max.mode)
 
-    # Setup configuration structures (Note: No logging can occur before
-    # this otherwise it will break the output)
-    config = App.read_config_file(App.get_config_file_path(args))
-    App.setup_logging(args.verbose, args.logfile)
+    # @TODO This is hax
+    # Setup PulseAudio
+    bt_device = BluetoothDevice(max.config)
+    sp_device = GenericAudioDevice(max.config, 'speakers')
+    hs_device = GenericAudioDevice(max.config, 'headset')
+    pulse = PulseAudio(max.config, bt_device, sp_device, hs_device)
 
-    # DBus setup
-    DBusGMainLoop(set_as_default=True)
+    if max.mode == max.MODE_STATUS:
+        max.status(pulse)
+    elif max.mode == max.MODE_ROUTE:
+        max.route(pulse)
+    elif max.mode == max.MODE_TOGGLE:
+        max.toggle(pulse)
+    else:
+        # Daemon Mode
+        dbus_listener = DBusListener(bt_device, pulse)
+        dbus_listener.listen()
 
-    # Setup our router object which will handle what to do when a BT event hits
-    # This must occur after the DBusGMainLoop call above.
-    ar = AudioRouter(config)
-    ar.setup_dbus()
-
-    # See if we are simulating
-    if args.connect or args.disconnect or args.toggle:
-        App.log_angry(logging.WARN, "Simulating an event. DBus will not monitor.")
-
-        # Test if the user is paying attention
-        if args.connect and args.disconnect:
-            App.log_angry(logging.ERROR, "You cannot specify both connect and disconnect")
-            if args.toggle:
-                App.log_angry(logging.ERROR, "You cannot specify connect/disconnect and toggle")
-                exit(1)
-
-        # Perform
-        if args.connect:
-            ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": True}, None)
-        if args.disconnect:
-            ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": False}, None)
-        if args.toggle:
-            # Detect whether we're on BT device or not and do the opposite.
-            with PulseLib('maxime-toggle_connection') as pulse:
-                current_state = Pulse.is_bt_active(pulse, ar.get_bt_dev_property('Name'))
-                if current_state:
-                    # Disconnect
-                    ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": False},
-                                     None)
-                else:
-                    # Connect
-                    ar._dbus_handler(DBus.INTERFACE_DEVICE, {"Connected": True},
-                                     None)
-
-        # Done with our simulations.
-        App.log_angry(logging.WARN, "Simulation complete!")
-        exit()
-
-    # DBus event loop. Listen to the sounds....
-    loop_msg = "Started listening for BT audio devices."
-    App.send_notification(loop_msg, "audio-card")
-    dbus_loop = GLib.MainLoop()
-    dbus_loop.run()
-
-
-def test():
-    # Parse command-line arguments
-    args = App.read_args()
-
-    # Setup configuration structures (Note: No logging can occur before
-    # this otherwise it will break the output)
-    config = App.read_config_file(App.get_config_file_path(args))
-    App.setup_logging(args.verbose, args.logfile)
-
-    # DBus setup
-    DBusGMainLoop(set_as_default=True)
-
-    # Setup our router object which will handle what to do when a BT event hits
-    # This must occur after the DBusGMainLoop call above.
-    ar = AudioRouter(config)
-    ar.setup_dbus()
-
-    with PulseLib('maxime-manage') as pulse:
-        pass
-
+    logging.info("Exiting.")
 
 if __name__ == "__main__":
     main()
-    #test()
