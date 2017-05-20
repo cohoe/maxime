@@ -2,9 +2,9 @@
 Encoding=UTF-8
 Version=0.0.1
 Type=Application
-Name=Maxime
-Comment=Maxime
-Exec=/usr/local/bin/maxime.py
+Name=Status
+Comment=Maxime Status
+Exec=/usr/local/bin/maxime.py --status
 StartupNotify=false
 Terminal=false
 Hidden=false

@@ -13,7 +13,6 @@ from pulsectl import Pulse as PulseLib
 # @TODO
 # Bluetooth connection management
 # Comments
-# --status (XF86AudioPrev)
 
 class Maxime:
     """
@@ -25,6 +24,7 @@ class Maxime:
     MODE_LISTEN = "listen"
     MODE_DAEMON = "daemon"
     MODE_TOGGLE = "toggle"
+    MODE_STATUS = "status"
 
     ROUTE_SPEAKERS = "speakers"
     ROUTE_HEADSET = "headset"
@@ -106,6 +106,11 @@ class Maxime:
                             action='store_true',
                             help='toggle between speakers/wireless')
 
+        parser.add_argument('--status',
+                            default=False,
+                            action='store_true',
+                            help='show the current output device')
+
         return parser.parse_args()
 
     @staticmethod
@@ -174,6 +179,18 @@ class Maxime:
         :return: 
         """
         # Determine what we're going to do
+        if self.args.status is True:
+            if self.args.connect is True or self.args.disconnect is True:
+                self.exit_err("You cannot specify --status and --connect/--disconnect")
+            if self.args.route is not None:
+                self.exit_err("You cannot specify --status and --route")
+            if self.args.toggle is True:
+                self.exit_err("You cannot specify --status and --toggle")
+            if self.args.listen is True:
+                self.exit_err("You cannot specify --status and --listen")
+            self._set_mode(Maxime.MODE_STATUS)
+            return
+
         if self.args.route is not None:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --route and --toggle")
@@ -247,6 +264,16 @@ class Maxime:
             logging.info("Current output is not wireless. Switching to wireless.")
             pulse.activate_wireless()
 
+    def status(self, pulse):
+        """
+        Show the current output device.
+        :param pulse: 
+        :return: 
+        """
+        ladspa_device = pulse._lookup_sink_output_device("LADSPA Plugin Multiband EQ")
+        logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
+        output_string = ladspa_device.description.replace("LADSPA Plugin Multiband EQ on ", "")
+        DBusHelper.send_notification("Current output is \"%s\"" % output_string)
 
 
 class DBusHelper:
@@ -590,7 +617,9 @@ def main():
     hs_device = GenericAudioDevice(max.config, 'headset')
     pulse = PulseAudio(max.config, bt_device, sp_device, hs_device)
 
-    if max.mode == max.MODE_ROUTE:
+    if max.mode == max.MODE_STATUS:
+        max.status(pulse)
+    elif max.mode == max.MODE_ROUTE:
         max.route(pulse)
     elif max.mode == max.MODE_TOGGLE:
         max.toggle(pulse)
