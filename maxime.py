@@ -96,6 +96,7 @@ class Maxime:
     MODE_DAEMON = "daemon"
     MODE_TOGGLE = "toggle"
     MODE_STATUS = "status"
+    MODE_RECONNECT = "reconnect"
 
     ROUTE_SPEAKERS = "speakers"
     ROUTE_HEADSET = "headset"
@@ -177,6 +178,11 @@ class Maxime:
                             action='store_true',
                             help='toggle between speakers/wireless')
 
+        parser.add_argument('--reconnect',
+                            default=False,
+                            action='store_true',
+                            help='reconnect to the wireless device')
+
         parser.add_argument('--status',
                             default=False,
                             action='store_true',
@@ -251,8 +257,8 @@ class Maxime:
         """
         # Determine what we're going to do
         if self.args.status is True:
-            if self.args.connect is True or self.args.disconnect is True:
-                self.exit_err("You cannot specify --status and --connect/--disconnect")
+            if self.args.connect is True or self.args.disconnect is True or self.args.reconnect is True:
+                self.exit_err("You cannot specify --status and --connect/--disconnect/--reconnect")
             if self.args.route is not None:
                 self.exit_err("You cannot specify --status and --route")
             if self.args.toggle is True:
@@ -265,8 +271,8 @@ class Maxime:
         if self.args.route is not None:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --route and --toggle")
-            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True:
-                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen")
+            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True or self.args.reconnect is True:
+                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen/--reconnect")
 
             self._set_mode(Maxime.MODE_ROUTE)
             return
@@ -276,17 +282,25 @@ class Maxime:
                 self.exit_err("You cannot specify both --connect and --disconnect.")
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --connect and --toggle")
+            if self.args.reconnect is True:
+                self.exit_err("You cannot specify both --connect and --reconnect.")
 
             self._set_mode(Maxime.MODE_CONNECT)
             return
         elif self.args.disconnect is True:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --disconnect and --toggle")
+            if self.args.reconnect is True:
+                self.exit_err("You cannot specify --disconnect and --reconnect")
             self._set_mode(Maxime.MODE_DISCONNECT)
             return
 
         if self.args.toggle is True:
             self._set_mode(Maxime.MODE_TOGGLE)
+            return
+
+        if self.args.reconnect is True:
+            self._set_mode(Maxime.MODE_RECONNECT)
             return
 
         logging.info("Starting daemon mode.")
@@ -394,6 +408,18 @@ class Maxime:
         bluez.disconnect(mac_address=bt_device.mac, prompt=bt_device.output_device)
         logging.info("Disconnected from \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
         DBusHelper.send_notification("Disconnected from %s." % bt_device.output_device, icon=DBusHelper.ICON_WIRELESS)
+
+    def reconnect(self, bt_device):
+        """
+        Reconnect
+        :param bt_device: 
+        :return: 
+        """
+        logging.debug("Reconnecting to \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+        self.disconnect(bt_device)
+        # Dunno if this will actually be needed. Will see how it behaves
+        # time.sleep(1)
+        self.connect(bt_device)
 
 
 class DBusHelper:
@@ -747,6 +773,8 @@ def main():
         max.connect(bt_device)
     elif max.mode == max.MODE_DISCONNECT:
         max.disconnect(bt_device)
+    elif max.mode == max.MODE_RECONNECT:
+        max.reconnect(bt_device)
     else:
         # Daemon Mode
         dbus_listener = DBusListener(bt_device, pulse)
