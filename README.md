@@ -37,7 +37,20 @@ device for this to work. Goes something like
 [bluetooth]# trust DE:AD:BE:EF:CA:FE
 ```
 
+## Prerequisites
+System stuff
+* A Fedora-based linux box (it might work with others? idk)
+* PulseAudio
+* Bluez
+
+The following python modules are needed (Fedora package names in ()'s):
+* dbus (dbus-python)
+* pexpect (python2-pexpect)
+* gobject-base (python-gobject-base)
+* pulsectl (No package available)
+
 ## Installation
+
 1) Copy the ``maxime.ini.example`` to ``~/.config/maxime.ini`` and edit appropriately
 2) Copy the ``maxime.desktop`` to ``~/.config/autostart/`` (If you want it to start on boot)
 3) Copy the other desktop files to ``~/.local/share/applications``
