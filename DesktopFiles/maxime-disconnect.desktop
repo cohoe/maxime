@@ -1,0 +1,11 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=0.0.1
+Type=Application
+Name=Disconnect Wireless
+Comment=Disconnect Wireless
+Exec=maxime.py --disconnect
+StartupNotify=false
+Terminal=false
+Hidden=false
+Icon=audio-headphones

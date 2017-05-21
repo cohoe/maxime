@@ -6,13 +6,84 @@ import os
 import argparse
 import logging
 import time
+import pexpect
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 from pulsectl import Pulse as PulseLib
 
 # @TODO
-# Bluetooth connection management
 # Comments
+
+# These first two classes (BluetoothctlError and Bluetoothctl were adapted from
+# Egor Fedorov's ReachView project. The GPLv3 license of this code is compatible with
+# the Apache license of my project.
+
+# ReachView code is placed under the GPL license.
+# Written by Egor Fedorov (egor.fedorov@emlid.com)
+# Copyright (c) 2015, Emlid Limited
+# All rights reserved.
+
+# If you are interested in using ReachView code as a part of a
+# closed source project, please contact Emlid Limited (info@emlid.com).
+
+# This file is part of ReachView.
+
+
+class BluetoothctlError(Exception):
+    """This exception is raised, when bluetoothctl fails to start."""
+    pass
+
+
+class Bluetoothctl:
+    """A wrapper for bluetoothctl utility."""
+
+    def __init__(self):
+        self.child = pexpect.spawn("bluetoothctl", echo=False)
+
+    def get_output(self, command, pause=0, prompt="bluetooth"):
+        """Run a command in bluetoothctl prompt, return output as a list of lines."""
+        self.child.send(command + "\n")
+        time.sleep(pause)
+        start_failed = self.child.expect([prompt, pexpect.EOF])
+
+        if start_failed:
+            raise BluetoothctlError("Bluetoothctl failed after running " + command)
+
+        return self.child.before.split("\r\n")
+
+    def get_device_info(self, mac_address):
+        """Get device info by mac address."""
+        try:
+            out = self.get_output("info " + mac_address)
+        except BluetoothctlError, e:
+            print(e)
+            return None
+        else:
+            return out
+
+    def connect(self, mac_address):
+        """Try to connect to a device by mac address."""
+        try:
+            out = self.get_output("connect " + mac_address, 2)
+        except BluetoothctlError, e:
+            print(e)
+            return None
+        else:
+            res = self.child.expect(["Failed to connect", "Connection successful", pexpect.EOF])
+            success = True if res == 1 else False
+            return success
+
+    def disconnect(self, mac_address, prompt):
+        """Try to disconnect to a device by mac address."""
+        try:
+            out = self.get_output("disconnect " + mac_address, 2, prompt=prompt)
+        except BluetoothctlError, e:
+            print(e)
+            return None
+        else:
+            res = self.child.expect(["Failed to disconnect", "Successful disconnected", pexpect.EOF])
+            success = True if res == 1 else False
+            return success
 
 class Maxime:
     """
@@ -160,7 +231,7 @@ class Maxime:
                             filename=self.args.logfile,
                             level=log_level)
 
-        logging.info("Starting logging facility")
+        logging.debug("Starting logging facility")
 
     @staticmethod
     def exit_err(message):
@@ -274,6 +345,55 @@ class Maxime:
         logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
         output_string = ladspa_device.description.replace("LADSPA Plugin Multiband EQ on ", "")
         DBusHelper.send_notification("Current output is \"%s\"" % output_string)
+
+    def connect(self, bt_device):
+        """
+        Connect to a Bluetooth device
+        :param bt_device: 
+        :return: 
+        """
+        logging.debug("Connecting to \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+        bluez = Bluetoothctl()
+        device_info = bluez.get_device_info(bt_device.mac)
+
+        # Figure out if we're already connected to the device.
+        prefix = "Connected: "
+        raw_is_connected = None
+        for line in device_info:
+            if prefix in line:
+                raw_is_connected = line.strip().replace(prefix, "").upper()
+                break
+
+        # Parse to Boolean
+        if 'NO' in raw_is_connected:
+            logging.debug("Wireless device is not connected.")
+            is_connected = False
+        elif 'YES' in raw_is_connected:
+            logging.debug("Wireless device is connected.")
+            is_connected = True
+        else:
+            logging.error("Could not determine connected state.")
+            return
+
+        # Connect
+        if is_connected is False:
+            bluez.connect(mac_address=bt_device.mac)
+            logging.info("Connected to \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+            DBusHelper.send_notification("Connected to %s." % bt_device.output_device, icon=DBusHelper.ICON_WIRELESS)
+
+        logging.debug("Device was already connected. Not doing anything...")
+
+    def disconnect(self, bt_device):
+        """
+        Disconnect to a Bluetooth device
+        :param bt_device: 
+        :return: 
+        """
+        logging.debug("Disconnecting \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+        bluez = Bluetoothctl()
+        bluez.disconnect(mac_address=bt_device.mac, prompt=bt_device.output_device)
+        logging.info("Disconnected from \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+        DBusHelper.send_notification("Disconnected from %s." % bt_device.output_device, icon=DBusHelper.ICON_WIRELESS)
 
 
 class DBusHelper:
@@ -623,12 +743,16 @@ def main():
         max.route(pulse)
     elif max.mode == max.MODE_TOGGLE:
         max.toggle(pulse)
+    elif max.mode == max.MODE_CONNECT:
+        max.connect(bt_device)
+    elif max.mode == max.MODE_DISCONNECT:
+        max.disconnect(bt_device)
     else:
         # Daemon Mode
         dbus_listener = DBusListener(bt_device, pulse)
         dbus_listener.listen()
 
-    logging.info("Exiting.")
+    logging.debug("Exiting.")
 
 if __name__ == "__main__":
     main()
