@@ -1,3 +1,12 @@
 [bluetooth]
-device_mac=AB:CD:ED:12:34:56
+device_mac=DE:AD:BE:EF:CA:FE
 adapter=hci0
+output_device=Bose QuietComfort 35
+
+[headset]
+output_device=Built-in Audio Analog Stereo
+input_device=Built-in Audio Analog Stereo
+
+[speakers]
+output_device=SB X-Fi Surround 5.1 Pro Digital Stereo (IEC958)
+input_device=SB X-Fi Surround 5.1 Pro Analog Stereo
