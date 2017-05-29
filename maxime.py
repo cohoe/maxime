@@ -326,11 +326,11 @@ class Maxime:
         """
         destination = self.args.route.lower()
         if destination == self.ROUTE_WIRELESS:
-            pulse.activate_wireless()
+            pulse.activate_wireless(conn_event=False)
         elif destination == self.ROUTE_HEADSET:
-            pulse.activate_headset()
+            pulse.activate_headset(conn_event=False)
         elif destination == self.ROUTE_SPEAKERS:
-            pulse.activate_speakers()
+            pulse.activate_speakers(conn_event=False)
         else:
             self.exit_err("Routing destination must be speakers|wireless|headset")
 
@@ -344,10 +344,10 @@ class Maxime:
         logging.debug("LADSPA device is \"%s\"" % ladspa_device.description)
         if pulse.bt_device.output_device in ladspa_device.description:
             logging.info("Current output is wireless. Switching to speakers.")
-            pulse.activate_speakers()
+            pulse.activate_speakers(conn_event=False)
         else:
             logging.info("Current output is not wireless. Switching to wireless.")
-            pulse.activate_wireless()
+            pulse.activate_wireless(conn_event=False)
 
     def status(self, pulse):
         """
@@ -420,7 +420,6 @@ class Maxime:
         # Dunno if this will actually be needed. Will see how it behaves
         # time.sleep(1)
         self.connect(bt_device)
-
 
 class DBusHelper:
     """
@@ -623,7 +622,13 @@ class PulseAudio:
         self.hs_device = hs_device
         self.sp_device = sp_device
 
-    def activate_wireless(self):
+    def activate_wireless(self, conn_event=True):
+        """
+        Activate the wireless device. If it's a (dis)connect event,
+        also mute the speakers so we don't blast audio.
+        :param conn_event:
+        :return:
+        """
         logging.debug("Activating wireless.")
 
         device_name = self.bt_device.output_device
@@ -644,9 +649,21 @@ class PulseAudio:
                 logging.error("Unable to find wireless device.")
 
         logging.debug("Target device is \"%s\"" % target_device.description)
+
+        # This event check is used to make sure the headphones being
+        # (un)intentionally disconnected don't suddenly blast loud noises
+        # out of the speakers.
+        if conn_event is True:
+            logging.debug("This is a connection event. Unmuting wireless.")
+            self._unmute(self.ladspa_device)
         self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
 
-    def activate_headset(self):
+    def activate_headset(self, conn_event=True):
+        """
+        Activate the headset device.
+        :param conn_event:
+        :return:
+        """
         logging.debug("Activating headset.")
 
         out_device_name = self.hs_device.output_device
@@ -661,13 +678,19 @@ class PulseAudio:
         self._move_output(self.ladspa_device, target_output_device, DBusHelper.ICON_HEADSET)
         self._set_input(target_input_device)
 
-    def activate_speakers(self):
+    def activate_speakers(self, conn_event=True):
         logging.debug("Activating speakers.")
 
         device_name = self.sp_device.output_device
         target_device = self._lookup_sink_output_device(device_name)
         logging.debug("Target device is \"%s\"" % target_device.description)
 
+        # This event check is used to make sure the headphones being
+        # (un)intentionally disconnected don't suddenly blast loud noises
+        # out of the speakers.
+        if conn_event is True:
+            logging.debug("This is a connection event. Muting speakers.")
+            self._mute(self.ladspa_device)
         self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_SPEAKERS)
 
     def _lookup_sink_input_device(self, name):
@@ -743,10 +766,28 @@ class PulseAudio:
         """
         if conn_state is True:
             # Connection
-            self.activate_wireless()
+            self.activate_wireless(conn_event=True)
         elif conn_state is False:
             # Disconnection
-            self.activate_speakers()
+            self.activate_speakers(conn_event=True)
+
+    def _mute(self, device):
+        """
+        Mute a sink device
+        :param device:
+        :return:
+        """
+        logging.debug("Muting device \"%s\"" % device.name)
+        self.pulse_conn.sink_input_mute(device.index, True)
+
+    def _unmute(self, device):
+        """
+        Unmute a sink input device.
+        :param device:
+        :return:
+        """
+        logging.debug("Unmuting device \"%s\"" % device.name)
+        self.pulse_conn.sink_input_mute(device.index, False)
 
 
 def main():
