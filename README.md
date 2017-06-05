@@ -115,3 +115,5 @@ Launchy doesnt deal with multiple entries in desktop files well. Sorry bro.
 * Does not error when device is not present. Should either barf or attempt to connect for you.
 * Errors should produce a notification
 * Switching profiles should reconnect
+* Specify wireless fallback device.
+* Multiple speakers???
