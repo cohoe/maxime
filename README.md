@@ -19,9 +19,9 @@ switching between devices as the headphones come on and off.
 This utility is built to deal with that case.
 
 ## Primary Features
-* Connect/Disconnect from headphones.
-* Automatic switching to/from headphones on connect.
+* Automatic switching to/from headphones on (dis)connect.
 * Desktop notifications.
+* Resync audio stream.
 
 ## Under the Hood
 Maxime listens to DBus for events, particularly when the headphones
@@ -56,7 +56,18 @@ The following python modules are needed (Fedora package names in ()'s):
 3) Copy the other desktop files to ``~/.local/share/applications``
 3) Copy the ``maxime.py`` to ``/usr/local/bin/maxime.py``
 
-You can put it whever you want, just check the path in the .desktop file.
+You can put it wherever you want, just check the path in the .desktop file.
+
+_Optional:_
+The QC35's identify a computer by name, which with Linux defaults to the hostname. 
+If your system has a FQDN as a hostname (ie, ``hostname`` spits out something like 
+``foo.example.com``). This can be obnoxious because the onboard speech engine has
+to say (or spell) out the entire name. You can shorten this by specifying a 
+``PRETTY_HOSTNAME=something`` in ``/etc/machine-info`` and restarting the Bluetooth
+service. See [this repo](https://github.com/cohoe/workstation/blob/master/roles/bluetooth/tasks/main.yml) for an example.
+
+Note that if you have already paired/trusted the headphones you'll need to wipe them out
+to change the registered name.
 
 ## Usage
 ```
@@ -79,7 +90,7 @@ optional arguments:
   --disconnect          trigger a wireless disconnect event
   --listen              Listen for events but do not act on them
   --toggle              toggle between speakers/wireless
-  --reconnect           reconnect to the wireless device
+  --resync              resync the wireless audio stream
   --status              show the current output device
 ```
 
@@ -96,11 +107,11 @@ See [this repo](https://github.com/cohoe/workstation/blob/master/roles/xfce/task
 ### Crappy dial-up quality audio
 Your system probably enabled the HSP "headset" profile instead of the A2DP "high quality audio".
 You can change this by opening pavucontrol (Pulse Volume Control), going to the Configuration
-tab and setting Profile for your device to "High Fidelity Playback (A2DP Sink)"
+tab and setting Profile for your device to "High Fidelity Playback (A2DP Sink)".
 
 ### Audio not in sync
-Bluetooth sucks. What more can I tell you? Best thing to do is run ``maxime.py --reconnect``
-and hope for the best.
+Best thing to do is run ``maxime.py --resync`` and hope for the best. Maybe don't walk so far away
+and/or re-orient your antenna. Bluetooth kinda sucks.
 
 ### No audio and/or controls not working
 The QC35's can be connected to multiple devices at the same time. You probably have a device

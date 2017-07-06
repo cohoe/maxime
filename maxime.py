@@ -96,7 +96,7 @@ class Maxime:
     MODE_DAEMON = "daemon"
     MODE_TOGGLE = "toggle"
     MODE_STATUS = "status"
-    MODE_RECONNECT = "reconnect"
+    MODE_RESYNC = "resync"
 
     ROUTE_SPEAKERS = "speakers"
     ROUTE_HEADSET = "headset"
@@ -178,10 +178,10 @@ class Maxime:
                             action='store_true',
                             help='toggle between speakers/wireless')
 
-        parser.add_argument('--reconnect',
+        parser.add_argument('--resync',
                             default=False,
                             action='store_true',
-                            help='reconnect to the wireless device')
+                            help='resync to the wireless device')
 
         parser.add_argument('--status',
                             default=False,
@@ -257,8 +257,8 @@ class Maxime:
         """
         # Determine what we're going to do
         if self.args.status is True:
-            if self.args.connect is True or self.args.disconnect is True or self.args.reconnect is True:
-                self.exit_err("You cannot specify --status and --connect/--disconnect/--reconnect")
+            if self.args.connect is True or self.args.disconnect is True or self.args.resync is True:
+                self.exit_err("You cannot specify --status and --connect/--disconnect/--resync")
             if self.args.route is not None:
                 self.exit_err("You cannot specify --status and --route")
             if self.args.toggle is True:
@@ -271,8 +271,8 @@ class Maxime:
         if self.args.route is not None:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --route and --toggle")
-            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True or self.args.reconnect is True:
-                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen/--reconnect")
+            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True or self.args.resync is True:
+                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen/--resync")
 
             self._set_mode(Maxime.MODE_ROUTE)
             return
@@ -282,16 +282,16 @@ class Maxime:
                 self.exit_err("You cannot specify both --connect and --disconnect.")
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --connect and --toggle")
-            if self.args.reconnect is True:
-                self.exit_err("You cannot specify both --connect and --reconnect.")
+            if self.args.resync is True:
+                self.exit_err("You cannot specify both --connect and --resync.")
 
             self._set_mode(Maxime.MODE_CONNECT)
             return
         elif self.args.disconnect is True:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --disconnect and --toggle")
-            if self.args.reconnect is True:
-                self.exit_err("You cannot specify --disconnect and --reconnect")
+            if self.args.resync is True:
+                self.exit_err("You cannot specify --disconnect and --resync")
             self._set_mode(Maxime.MODE_DISCONNECT)
             return
 
@@ -299,8 +299,8 @@ class Maxime:
             self._set_mode(Maxime.MODE_TOGGLE)
             return
 
-        if self.args.reconnect is True:
-            self._set_mode(Maxime.MODE_RECONNECT)
+        if self.args.resync is True:
+            self._set_mode(Maxime.MODE_RESYNC)
             return
 
         logging.info("Starting daemon mode.")
@@ -409,17 +409,15 @@ class Maxime:
         logging.info("Disconnected from \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
         DBusHelper.send_notification("Disconnected from %s." % bt_device.output_device, icon=DBusHelper.ICON_WIRELESS)
 
-    def reconnect(self, bt_device):
+    def resync(self, pulse):
         """
-        Reconnect
-        :param bt_device: 
+        Resync audio stream to the bluetooth device. This can happen when you
+        encounter some signal problems by walking too far away.
+        :param pulse: PulseAudio wrapper. 
         :return: 
         """
-        logging.debug("Reconnecting to \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
-        self.disconnect(bt_device)
-        # Dunno if this will actually be needed. Will see how it behaves
-        # time.sleep(1)
-        self.connect(bt_device)
+        logging.debug("Resyncing wireless")
+        pulse.resync_wireless()
 
 class DBusHelper:
     """
@@ -658,6 +656,25 @@ class PulseAudio:
             self._unmute(self.ladspa_device)
         self._move_output(self.ladspa_device, target_device, DBusHelper.ICON_WIRELESS)
 
+    def resync_wireless(self):
+        """
+        Resync a wireless stream.
+        :return: 
+        """
+        # This uses a card identifer rather than a device. No idea if that matters.
+        bt_dev = self._lookup_sink_output_device("bluez_card")
+
+        # There is no direct way to resync a stream to the wireless
+        # device, but the folks on this here forum have found a
+        # way to make it sorta work.
+        # https://askubuntu.com/questions/145935/get-rid-of-0-5s-latency-when-playing-audio-over-bluetooth-with-a2dp
+        self.pulse_conn.card_profile_set(bt_dev, "headset_head_unit")
+        self.pulse_conn.card_profile_set(bt_dev, "a2dp_sink")
+
+        # Switching profiles makes the sinks change, so we need to reroute.
+        # @TODO might need to switch conn_even to true if there are mute issues
+        self.activate_wireless(conn_event=False)
+
     def activate_headset(self, conn_event=True):
         """
         Activate the headset device.
@@ -814,8 +831,8 @@ def main():
         max.connect(bt_device)
     elif max.mode == max.MODE_DISCONNECT:
         max.disconnect(bt_device)
-    elif max.mode == max.MODE_RECONNECT:
-        max.reconnect(bt_device)
+    elif max.mode == max.MODE_RESYNC:
+        max.resync(pulse)
     else:
         # Daemon Mode
         dbus_listener = DBusListener(bt_device, pulse)
