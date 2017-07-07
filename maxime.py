@@ -608,6 +608,10 @@ class PulseAudio:
     """
     PulseAudio connection
     """
+    BT_CARD_PREFIX = "bluez_card"
+    BT_PROFILE_A2DP = "a2dp_sink"
+    BT_PROFILE_HSP = "headset_head_unit"
+
     def __init__(self, config, bt_device, sp_device, hs_device):
         """
         Constructor for PulseAudio connection.
@@ -662,14 +666,18 @@ class PulseAudio:
         :return: 
         """
         # This uses a card identifer rather than a device. No idea if that matters.
-        bt_dev = self._lookup_sink_output_device("bluez_card")
+        card_dev = self._lookup_card(self.BT_CARD_PREFIX)
 
         # There is no direct way to resync a stream to the wireless
         # device, but the folks on this here forum have found a
         # way to make it sorta work.
         # https://askubuntu.com/questions/145935/get-rid-of-0-5s-latency-when-playing-audio-over-bluetooth-with-a2dp
-        self.pulse_conn.card_profile_set(bt_dev, "headset_head_unit")
-        self.pulse_conn.card_profile_set(bt_dev, "a2dp_sink")
+        logging.debug("Setting profile of \"%s\" to \"%s\"" % (card_dev.name, self.BT_PROFILE_HSP))
+        self.pulse_conn.card_profile_set(card_dev, self.BT_PROFILE_HSP)
+        # We need to let Pulse catch its breath.
+        time.sleep(1)
+        logging.debug("Setting profile of \"%s\" to \"%s\"" % (card_dev.name, self.BT_PROFILE_A2DP))
+        self.pulse_conn.card_profile_set(card_dev, self.BT_PROFILE_A2DP)
 
         # Switching profiles makes the sinks change, so we need to reroute.
         # @TODO might need to switch conn_even to true if there are mute issues
@@ -752,6 +760,18 @@ class PulseAudio:
 
         logging.error("Source device not found! (Was searching for \"%s\")" % description)
         raise Exception("Source device not found! (Was searching for \"%s\")" % description)
+
+    def _lookup_card(self, name):
+        """
+        Find a Pulse card. This is the equivalent of pacmd list-cards.
+        :param name: The string to search for in the name of the card.
+        :return: 
+        """
+        for device in self.pulse_conn.card_list():
+            if name in device.name:
+                return device
+        logging.error("Card \"%s\" not found!" % name)
+        raise Exception("Card \"%s\" not found!" % name)
 
     def _move_output(self, source, destination, icon):
         """
