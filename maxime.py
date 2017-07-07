@@ -18,6 +18,7 @@ from pulsectl import Pulse as PulseLib
 # Egor Fedorov's ReachView project. The GPLv3 license of this code is compatible with
 # the Apache license of my project.
 
+# BEGIN LICENSE OF REACHVIEW CODE
 # ReachView code is placed under the GPL license.
 # Written by Egor Fedorov (egor.fedorov@emlid.com)
 # Copyright (c) 2015, Emlid Limited
@@ -27,7 +28,7 @@ from pulsectl import Pulse as PulseLib
 # closed source project, please contact Emlid Limited (info@emlid.com).
 
 # This file is part of ReachView.
-
+# END LICENSE OF REACHVIEW CODE
 
 class BluetoothctlError(Exception):
     """This exception is raised, when bluetoothctl fails to start."""
@@ -97,6 +98,7 @@ class Maxime:
     MODE_TOGGLE = "toggle"
     MODE_STATUS = "status"
     MODE_RESYNC = "resync"
+    MODE_RECONNECT = "reconnect"
 
     ROUTE_SPEAKERS = "speakers"
     ROUTE_HEADSET = "headset"
@@ -181,7 +183,12 @@ class Maxime:
         parser.add_argument('--resync',
                             default=False,
                             action='store_true',
-                            help='resync to the wireless device')
+                            help='resync the wireless device')
+
+        parser.add_argument('--reconnect',
+                            default=False,
+                            action='store_true',
+                            help='reconnect to the wireless device')
 
         parser.add_argument('--status',
                             default=False,
@@ -257,8 +264,8 @@ class Maxime:
         """
         # Determine what we're going to do
         if self.args.status is True:
-            if self.args.connect is True or self.args.disconnect is True or self.args.resync is True:
-                self.exit_err("You cannot specify --status and --connect/--disconnect/--resync")
+            if self.args.connect is True or self.args.disconnect is True or self.args.resync is True or self.args.reconnect is True:
+                self.exit_err("You cannot specify --status and --connect/--disconnect/--resync/--reconnect")
             if self.args.route is not None:
                 self.exit_err("You cannot specify --status and --route")
             if self.args.toggle is True:
@@ -271,8 +278,8 @@ class Maxime:
         if self.args.route is not None:
             if self.args.toggle is True:
                 self.exit_err("You cannot specify --route and --toggle")
-            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True or self.args.resync is True:
-                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen/--resync")
+            if self.args.connect is True or self.args.disconnect is True or self.args.listen is True or self.args.resync is True or self.args.reconnect is True:
+                self.exit_err("You cannot specify --route and --connect/--disconnect/--listen/--resync/--reconnect")
 
             self._set_mode(Maxime.MODE_ROUTE)
             return
@@ -284,6 +291,8 @@ class Maxime:
                 self.exit_err("You cannot specify --connect and --toggle")
             if self.args.resync is True:
                 self.exit_err("You cannot specify both --connect and --resync.")
+            if self.args.reconnect is True:
+                self.exit_err("You cannot specify both --connect and --reconect.")
 
             self._set_mode(Maxime.MODE_CONNECT)
             return
@@ -292,6 +301,8 @@ class Maxime:
                 self.exit_err("You cannot specify --disconnect and --toggle")
             if self.args.resync is True:
                 self.exit_err("You cannot specify --disconnect and --resync")
+            if self.args.reconnect is True:
+                self.exit_err("You cannot specify --disconnect and --reconnect")
             self._set_mode(Maxime.MODE_DISCONNECT)
             return
 
@@ -300,7 +311,15 @@ class Maxime:
             return
 
         if self.args.resync is True:
+            if self.args.reconnect is True:
+                self.exit_err("--reconnect implies --resync. Only specify one or the other.")
             self._set_mode(Maxime.MODE_RESYNC)
+            return
+
+        if self.args.reconnect is True:
+            if self.args.resync is True:
+                self.exit_err("--reconnect implies --resync. Only specify one or the other.")
+            self._set_mode(Maxime.MODE_RECONNECT)
             return
 
         logging.info("Starting daemon mode.")
@@ -418,6 +437,18 @@ class Maxime:
         """
         logging.debug("Resyncing wireless")
         pulse.resync_wireless()
+
+    def reconnect(self, bt_device):
+        """
+        Reconnect
+        :param bt_device: 
+        :return: 
+        """
+        logging.debug("Reconnecting to \"%s\" at \"%s\"" % (bt_device.output_device, bt_device.mac))
+        self.disconnect(bt_device)
+        # Dunno if this will actually be needed. Will see how it behaves
+        # time.sleep(1)
+        self.connect(bt_device)
 
 class DBusHelper:
     """
@@ -673,6 +704,7 @@ class PulseAudio:
         # way to make it sorta work.
         # https://askubuntu.com/questions/145935/get-rid-of-0-5s-latency-when-playing-audio-over-bluetooth-with-a2dp
         logging.debug("Setting profile of \"%s\" to \"%s\"" % (card_dev.name, self.BT_PROFILE_HSP))
+        DBusHelper.send_notification("Resyncing Bluetooth audio stream.", icon=DBusHelper.ICON_GENERIC)
         self.pulse_conn.card_profile_set(card_dev, self.BT_PROFILE_HSP)
         # We need to let Pulse catch its breath.
         time.sleep(1)
@@ -853,6 +885,8 @@ def main():
         max.disconnect(bt_device)
     elif max.mode == max.MODE_RESYNC:
         max.resync(pulse)
+    elif max.mode == max.MODE_RECONNECT:
+        max.reconnect(bt_device)
     else:
         # Daemon Mode
         dbus_listener = DBusListener(bt_device, pulse)

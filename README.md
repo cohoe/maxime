@@ -91,6 +91,7 @@ optional arguments:
   --listen              Listen for events but do not act on them
   --toggle              toggle between speakers/wireless
   --resync              resync the wireless audio stream
+  --reconnect           reconnect the wireless device
   --status              show the current output device
 ```
 
