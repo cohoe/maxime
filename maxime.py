@@ -772,7 +772,7 @@ class PulseAudio:
         :return: 
         """
         for device in self.pulse_conn.sink_list():
-            if device.description.startswith(description):
+            if description in device.description:
                 return device
 
         logging.error("Sink Input device not found! (Was searching for \"%s\")" % description)
