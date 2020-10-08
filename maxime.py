@@ -50,7 +50,7 @@ class Bluetoothctl:
         if start_failed:
             raise BluetoothctlError("Bluetoothctl failed after running " + command)
 
-        return self.child.before.split("\r\n")
+        return self.child.before.split(b"\r\n")
 
     def get_device_info(self, mac_address):
         """Get device info by mac address."""
@@ -390,18 +390,18 @@ class Maxime:
         device_info = bluez.get_device_info(bt_device.mac)
 
         # Figure out if we're already connected to the device.
-        prefix = "Connected: "
+        prefix = b"Connected: "
         raw_is_connected = None
         for line in device_info:
             if prefix in line:
-                raw_is_connected = line.strip().replace(prefix, "").upper()
+                raw_is_connected = line.strip().replace(prefix, b"").upper()
                 break
 
         # Parse to Boolean
-        if 'NO' in raw_is_connected:
+        if b'NO' in raw_is_connected:
             logging.debug("Wireless device is not connected.")
             is_connected = False
-        elif 'YES' in raw_is_connected:
+        elif b'YES' in raw_is_connected:
             logging.debug("Wireless device is connected.")
             is_connected = True
         else:
