@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import dbus
-import ConfigParser
+import configparser
 import os
 import argparse
 import logging
@@ -56,7 +56,7 @@ class Bluetoothctl:
         """Get device info by mac address."""
         try:
             out = self.get_output("info " + mac_address)
-        except BluetoothctlError, e:
+        except BluetoothctlError as e:
             print(e)
             return None
         else:
@@ -66,7 +66,7 @@ class Bluetoothctl:
         """Try to connect to a device by mac address."""
         try:
             out = self.get_output("connect " + mac_address, 2)
-        except BluetoothctlError, e:
+        except BluetoothctlError as e:
             print(e)
             return None
         else:
@@ -78,7 +78,7 @@ class Bluetoothctl:
         """Try to disconnect to a device by mac address."""
         try:
             out = self.get_output("disconnect " + mac_address, 2, prompt=prompt)
-        except BluetoothctlError, e:
+        except BluetoothctlError as e:
             print(e)
             return None
         else:
@@ -202,10 +202,10 @@ class Maxime:
         """
         Read configuration directives from the config file.
         :param file_path: Path to the file that we want to read.
-        :return: ConfigParser object.
+        :return: configparser object.
         """
         # Read the config
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         config.read(file_path)
 
         return config
@@ -508,7 +508,7 @@ class BluetoothDevice:
     def __init__(self, config):
         """
         Constructor
-        :param config: Validated ConfigParser object 
+        :param config: Validated configparser object 
         """
         self.adapter = config.get('bluetooth', 'adapter')
         self.mac = config.get('bluetooth', 'device_mac')
